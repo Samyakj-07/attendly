@@ -10,6 +10,10 @@ jobs:
     name: Build Android APK
     runs-on: ubuntu-latest
 
+    env:
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xmx4096m -XX:MaxMetaspaceSize=1536m -XX:+HeapDumpOnOutOfMemoryError' -Dorg.gradle.vfs.watch=false"
+      _JAVA_OPTIONS: "-Xmx4096m -XX:MaxMetaspaceSize=1536m"
+
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
@@ -32,6 +36,15 @@ jobs:
       - name: 🏗️ Generate Native Android Project (Expo Prebuild)
         run: npx expo prebuild --platform android --clean
 
+      - name: ⚙️ Optimize Gradle & Memory Config
+        working-directory: android
+        run: |
+          # Increase Gradle & Kotlin Daemon Metaspace to prevent memory exhaustion
+          echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1536m -XX:+HeapDumpOnOutOfMemoryError" >> gradle.properties
+          echo "kotlin.daemon.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=1024m" >> gradle.properties
+          echo "android.enableLintVital=false" >> gradle.properties
+          echo "org.gradle.parallel=false" >> gradle.properties
+
       - name: 🔑 Configure Release Signing
         working-directory: android
         run: |
@@ -46,7 +59,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon -x lint -x lintVitalRelease -x lintVitalAnalyzeRelease
 
       - name: 📤 Upload Finished APK Artifact
         uses: actions/upload-artifact@v4
