@@ -130,12 +130,50 @@ export const AppStorage = {
 
   async importFullBackup(jsonString: string): Promise<boolean> {
     try {
-      const parsed = JSON.parse(jsonString);
-      if (parsed.profile) await this.saveProfile(parsed.profile);
-      if (parsed.subjects) await this.saveSubjects(parsed.subjects);
-      if (parsed.timetable) await this.saveTimetable(parsed.timetable);
-      if (parsed.records) await this.saveRecords(parsed.records);
-      if (parsed.exams) await this.saveExams(parsed.exams);
+      if (!jsonString || typeof jsonString !== 'string') return false;
+
+      // 1. Clean markdown code fences and wrappers
+      let cleaned = jsonString.trim();
+      if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
+      }
+
+      // 2. Replace smart/curly quotes with standard quotes
+      cleaned = cleaned
+        .replace(/[\u201C\u201D]/g, '"')
+        .replace(/[\u2018\u2019]/g, "'");
+
+      // 3. Parse JSON
+      let parsed = JSON.parse(cleaned);
+
+      // Handle wrapper objects like { data: { ... } } or { backup: { ... } }
+      if (!parsed.profile && !parsed.subjects && (parsed.data || parsed.backup)) {
+        parsed = parsed.data || parsed.backup;
+      }
+
+      // 4. Restore entities with verification
+      const promises: Promise<any>[] = [];
+      if (parsed.profile && typeof parsed.profile === 'object') {
+        promises.push(this.saveProfile(parsed.profile));
+      }
+      if (Array.isArray(parsed.subjects)) {
+        promises.push(this.saveSubjects(parsed.subjects));
+      }
+      if (Array.isArray(parsed.timetable)) {
+        promises.push(this.saveTimetable(parsed.timetable));
+      }
+      if (Array.isArray(parsed.records)) {
+        promises.push(this.saveRecords(parsed.records));
+      }
+      if (Array.isArray(parsed.exams)) {
+        promises.push(this.saveExams(parsed.exams));
+      }
+
+      if (promises.length === 0) {
+        return false;
+      }
+
+      await Promise.all(promises);
       return true;
     } catch (e) {
       console.error('Error importing backup:', e);

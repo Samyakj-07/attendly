@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { Subject } from '../types';
 import { useAttendance } from '../context/AttendanceContext';
 import {
@@ -17,6 +18,7 @@ import {
 } from '../utils/ipuEngine';
 import { X, Sliders, TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
+import { Analytics } from '../utils/analytics';
 
 interface SimulatorModalProps {
   visible: boolean;
@@ -29,9 +31,20 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
   onClose,
   subject,
 }) => {
+  const { colors, isDark } = useTheme();
   const { totalAttended, totalClasses, profile } = useAttendance();
   const [mode, setMode] = useState<'MISS' | 'ATTEND'>('MISS');
   const [selectedCount, setSelectedCount] = useState<number>(3);
+
+  useEffect(() => {
+    if (visible) {
+      Analytics.track('feature_used', {
+        feature: 'what_if_simulator',
+        mode,
+        is_subject_specific: !!subject,
+      });
+    }
+  }, [visible, mode]);
 
   const baseAttended = subject ? subject.attended : totalAttended;
   const baseTotal = subject ? subject.total : totalClasses;
@@ -65,29 +78,29 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
+      <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
           {/* Header */}
-          <View style={styles.headerRow}>
+          <View style={[styles.headerRow, { borderBottomColor: colors.border }]}>
             <View style={{ flex: 1 }}>
-              <View style={styles.badge}>
-                <Sliders size={13} color={THEME.colors.cyan} />
-                <Text style={styles.badgeText}>EXACT CLASS SIMULATOR</Text>
+              <View style={[styles.badge, { backgroundColor: colors.accentSubtle }]}>
+                <Sliders size={13} color={colors.accent} />
+                <Text style={[styles.badgeText, { color: colors.accent }]}>EXACT CLASS SIMULATOR</Text>
               </View>
-              <Text style={styles.titleText}>{title}</Text>
-              <Text style={styles.subtitleText}>
-                Current: <Text style={{ color: THEME.colors.textPrimary, fontWeight: '700' }}>{currentPct}%</Text> • Target: {target}%
+              <Text style={[styles.titleText, { color: colors.textPrimary }]}>{title}</Text>
+              <Text style={[styles.subtitleText, { color: colors.textTertiary }]}>
+                Current: <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>{currentPct}%</Text> • Target: {target}%
               </Text>
             </View>
 
             <TouchableOpacity
-              style={styles.closeBtn}
+              style={[styles.closeBtn, { backgroundColor: colors.surfaceElevated }]}
               onPress={() => {
                 AppHaptics.light();
                 onClose();
               }}
             >
-              <X size={20} color={THEME.colors.textSecondary} />
+              <X size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
@@ -96,7 +109,8 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
             <TouchableOpacity
               style={[
                 styles.modeTab,
-                mode === 'MISS' && { backgroundColor: THEME.colors.crimsonSubtle, borderColor: THEME.colors.crimson },
+                { backgroundColor: colors.surface, borderColor: colors.border },
+                mode === 'MISS' && { backgroundColor: colors.crimsonSubtle, borderColor: colors.crimson },
               ]}
               activeOpacity={0.7}
               onPress={() => {
@@ -106,12 +120,12 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
             >
               <TrendingDown
                 size={16}
-                color={mode === 'MISS' ? THEME.colors.crimson : THEME.colors.textTertiary}
+                color={mode === 'MISS' ? colors.crimson : colors.textTertiary}
               />
               <Text
                 style={[
                   styles.modeTabText,
-                  { color: mode === 'MISS' ? THEME.colors.crimson : THEME.colors.textTertiary },
+                  { color: mode === 'MISS' ? colors.crimson : colors.textTertiary },
                 ]}
               >
                 If I Miss Classes
@@ -121,7 +135,8 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
             <TouchableOpacity
               style={[
                 styles.modeTab,
-                mode === 'ATTEND' && { backgroundColor: THEME.colors.emeraldSubtle, borderColor: THEME.colors.emerald },
+                { backgroundColor: colors.surface, borderColor: colors.border },
+                mode === 'ATTEND' && { backgroundColor: colors.emeraldSubtle, borderColor: colors.emerald },
               ]}
               activeOpacity={0.7}
               onPress={() => {
@@ -131,12 +146,12 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
             >
               <TrendingUp
                 size={16}
-                color={mode === 'ATTEND' ? THEME.colors.emerald : THEME.colors.textTertiary}
+                color={mode === 'ATTEND' ? colors.emerald : colors.textTertiary}
               />
               <Text
                 style={[
                   styles.modeTabText,
-                  { color: mode === 'ATTEND' ? THEME.colors.emerald : THEME.colors.textTertiary },
+                  { color: mode === 'ATTEND' ? colors.emerald : colors.textTertiary },
                 ]}
               >
                 If I Attend Consecutively
@@ -146,7 +161,7 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
 
           {/* Ladder Simulation List */}
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            <Text style={styles.sectionHeading}>
+            <Text style={[styles.sectionHeading, { color: colors.textTertiary }]}>
               {mode === 'MISS' ? 'PROJECTED ATTENDANCE DROP LADDER' : 'PROJECTED RECOVERY TRAJECTORY'}
             </Text>
 
@@ -159,10 +174,10 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
               return (
                 <React.Fragment key={`step_${step.count}`}>
                   {showThresholdLine && (
-                    <View style={styles.thresholdMarker}>
-                      <AlertTriangle size={14} color={THEME.colors.crimson} />
-                      <Text style={styles.thresholdText}>
-                        ⚠️ {target}% IPU Minimum Threshold Crossed Here
+                    <View style={[styles.thresholdMarker, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(200, 92, 92, 0.15)', borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(200, 92, 92, 0.4)' }]}>
+                      <AlertTriangle size={14} color={colors.crimson} />
+                      <Text style={[styles.thresholdText, { color: colors.crimson }]}>
+                        ⚠️ {target}% Minimum Threshold Crossed Here
                       </Text>
                     </View>
                   )}
@@ -170,7 +185,8 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
                   <View
                     style={[
                       styles.ladderCard,
-                      step.isBelow && mode === 'MISS' && styles.cardDanger,
+                      { backgroundColor: colors.surface, borderColor: colors.border },
+                      step.isBelow && mode === 'MISS' && { borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(200, 92, 92, 0.3)' },
                     ]}
                   >
                     <View style={styles.ladderLeft}>
@@ -179,14 +195,16 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
                           styles.stepBubble,
                           {
                             backgroundColor:
-                              mode === 'MISS' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                              mode === 'MISS'
+                                ? (isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(200, 92, 92, 0.15)')
+                                : (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(46, 139, 99, 0.15)'),
                           },
                         ]}
                       >
                         <Text
                           style={[
                             styles.stepBubbleText,
-                            { color: mode === 'MISS' ? THEME.colors.crimson : THEME.colors.emerald },
+                            { color: mode === 'MISS' ? colors.crimson : colors.emerald },
                           ]}
                         >
                           {step.count}
@@ -194,12 +212,12 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
                       </View>
 
                       <View>
-                        <Text style={styles.stepTitle}>
+                        <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>
                           {mode === 'MISS'
                             ? `If you miss ${step.count} class${step.count > 1 ? 'es' : ''}`
                             : `If you attend ${step.count} class${step.count > 1 ? 'es' : ''}`}
                         </Text>
-                        <Text style={styles.stepDelta}>
+                        <Text style={[styles.stepDelta, { color: colors.textTertiary }]}>
                           {mode === 'MISS' ? `−${step.drop}% drop` : `+${step.gain}% gain`}
                         </Text>
                       </View>
@@ -212,10 +230,10 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
                           {
                             color:
                               step.pct >= target
-                                ? THEME.colors.emerald
+                                ? colors.emerald
                                 : step.pct >= 65
-                                ? THEME.colors.gold
-                                : THEME.colors.crimson,
+                                ? colors.gold
+                                : colors.crimson,
                           },
                         ]}
                       >
@@ -236,16 +254,13 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     justifyContent: 'flex-end',
   },
   modalContainer: {
-    backgroundColor: THEME.colors.background,
     borderTopLeftRadius: THEME.borderRadius.xxl,
     borderTopRightRadius: THEME.borderRadius.xxl,
     maxHeight: '85%',
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
     paddingTop: THEME.spacing.lg,
   },
   headerRow: {
@@ -255,13 +270,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: THEME.spacing.xl,
     paddingBottom: THEME.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.border,
   },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: THEME.colors.cyanSubtle,
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -269,7 +282,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   badgeText: {
-    color: THEME.colors.cyan,
     fontSize: THEME.typography.sizes.xxs,
     fontWeight: THEME.typography.weights.heavy,
     letterSpacing: 0.8,
@@ -277,17 +289,14 @@ const styles = StyleSheet.create({
   titleText: {
     fontSize: THEME.typography.sizes.lg,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
   },
   subtitleText: {
     fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textTertiary,
     marginTop: 2,
   },
   closeBtn: {
     padding: 6,
     borderRadius: THEME.borderRadius.pill,
-    backgroundColor: THEME.colors.surfaceElevated,
   },
   modeTabsRow: {
     flexDirection: 'row',
@@ -303,9 +312,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 10,
     borderRadius: THEME.borderRadius.lg,
-    backgroundColor: THEME.colors.surface,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
   },
   modeTabText: {
     fontSize: THEME.typography.sizes.xs,
@@ -318,7 +325,6 @@ const styles = StyleSheet.create({
   sectionHeading: {
     fontSize: THEME.typography.sizes.xxs,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textTertiary,
     letterSpacing: 1,
     marginBottom: THEME.spacing.md,
   },
@@ -326,15 +332,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
     borderRadius: THEME.borderRadius.md,
     padding: 8,
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.4)',
     marginVertical: THEME.spacing.sm,
   },
   thresholdText: {
-    color: THEME.colors.crimson,
     fontSize: THEME.typography.sizes.xs,
     fontWeight: THEME.typography.weights.heavy,
   },
@@ -342,15 +345,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.lg,
     padding: THEME.spacing.md,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
     marginBottom: THEME.spacing.sm,
-  },
-  cardDanger: {
-    borderColor: 'rgba(239, 68, 68, 0.3)',
   },
   ladderLeft: {
     flexDirection: 'row',
@@ -371,11 +369,9 @@ const styles = StyleSheet.create({
   stepTitle: {
     fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textPrimary,
   },
   stepDelta: {
     fontSize: THEME.typography.sizes.xxs,
-    color: THEME.colors.textTertiary,
     marginTop: 2,
   },
   ladderRight: {

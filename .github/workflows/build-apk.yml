@@ -1,0 +1,56 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Allows manual trigger with 1-click "Run workflow" button in GitHub Actions tab
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Node Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: 🏗️ Generate Native Android Project (Expo Prebuild)
+        run: npx expo prebuild --platform android --clean
+
+      - name: 🔑 Configure Release Signing
+        working-directory: android
+        run: |
+          # Generate self-signed keystore if release keystore doesn't exist
+          keytool -genkey -v -keystore app/release.keystore -alias attendly-key -keyalg RSA -keysize 2048 -validity 10000 -storepass attendly123 -keypass attendly123 -dname "CN=Attendly, OU=Engineering, O=Attendly, L=Delhi, S=Delhi, C=IN"
+          
+          # Inject release signing config into android/app/build.gradle
+          sed -i 's/signingConfigs {/signingConfigs {\n        release {\n            storeFile file("release.keystore")\n            storePassword "attendly123"\n            keyAlias "attendly-key"\n            keyPassword "attendly123"\n        }/' app/build.gradle
+          sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/' app/build.gradle
+
+      - name: ⚡ Build Standalone APK with Gradle
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: 📤 Upload Finished APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Attendly-Release-APK
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 30

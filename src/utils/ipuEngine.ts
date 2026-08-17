@@ -470,3 +470,26 @@ export function predictInternalMarks(pct: number): {
     nextMilestoneText: `Reach 75.0% to avoid exam detention and secure internal marks.`,
   };
 }
+
+/**
+ * Converts a time string (e.g. "09:30", "9:30", "10:10", "01:30", "3:30 PM")
+ * into total minutes from midnight for perfect chronological sorting.
+ */
+export function timeToMinutes(timeStr: string): number {
+  if (!timeStr) return 0;
+  const clean = timeStr.trim();
+  const isPM = clean.toLowerCase().includes('pm');
+  const isAM = clean.toLowerCase().includes('am');
+  const timeOnly = clean.replace(/(am|pm)/i, '').trim();
+  const [hStr, mStr] = timeOnly.split(':');
+  let h = parseInt(hStr) || 0;
+  const m = parseInt(mStr) || 0;
+
+  // Handle standard 12-hour college afternoon slots (1 PM to 7 PM commonly entered as 01:30, 02:30, etc.)
+  if (h >= 1 && h <= 7 && !isAM) {
+    h += 12;
+  } else if (isPM && h < 12) {
+    h += 12;
+  }
+  return h * 60 + m;
+}

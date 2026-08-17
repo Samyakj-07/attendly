@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,22 +6,25 @@ import {
   Modal,
   ScrollView,
   TouchableOpacity,
-  TextInput,
-  Alert,
 } from 'react-native';
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
 import { AttendanceRecord, AttendanceStatus, DayOfWeek } from '../types';
+import {
+  attendancePercentage,
+  attendanceBuffer,
+} from '../utils/ipuEngine';
 import {
   X,
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  Plus,
-  Trash2,
   Check,
   CheckCheck,
-  Clock,
+  TrendingUp,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 
@@ -53,11 +56,18 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
   onClose,
   initialSubjectId,
 }) => {
+  const { colors, isDark } = useTheme();
   const {
     records,
     subjects,
     timetable,
+    overallPercentage,
+    overallBuffer,
+    totalAttended,
+    totalClasses,
+    profile,
     markAttendance,
+    markAllSlotsAttendance,
     editAttendanceRecord,
     deleteAttendanceRecord,
   } = useAttendance();
@@ -80,6 +90,57 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>(
     initialSubjectId || 'ALL'
   );
+
+  useEffect(() => {
+    if (visible) {
+      if (initialSubjectId) {
+        setSelectedSubjectId(initialSubjectId);
+      } else {
+        setSelectedSubjectId('ALL');
+      }
+    }
+  }, [visible, initialSubjectId]);
+
+  // Compute live active course stats reflecting updated numbers
+  const activeCourseStats = useMemo(() => {
+    if (selectedSubjectId === 'ALL') {
+      const missed = Math.max(0, totalClasses - totalAttended);
+      return {
+        title: 'All Registered Courses',
+        code: `${subjects.length} Subjects`,
+        attended: totalAttended,
+        total: totalClasses,
+        missed,
+        pct: overallPercentage,
+        buffer: overallBuffer,
+      };
+    }
+    const sub = subjects.find(s => s.id === selectedSubjectId);
+    if (!sub) {
+      return {
+        title: 'Course Attendance',
+        code: '',
+        attended: 0,
+        total: 0,
+        missed: 0,
+        pct: 100,
+        buffer: 0,
+      };
+    }
+    const pct = attendancePercentage(sub.attended, sub.total);
+    const target = sub.targetRequirement || profile.targetAttendance || 75;
+    const buf = attendanceBuffer(sub.attended, sub.total, target);
+    const missed = Math.max(0, sub.total - sub.attended);
+    return {
+      title: sub.name,
+      code: sub.code,
+      attended: sub.attended,
+      total: sub.total,
+      missed,
+      pct,
+      buffer: buf,
+    };
+  }, [selectedSubjectId, subjects, totalAttended, totalClasses, overallPercentage, overallBuffer, profile]);
 
   // Month navigation
   const handlePrevMonth = () => {
@@ -167,41 +228,29 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
 
   // Selected date info
   const selectedDayInfo = useMemo(() => {
-    const parts = selectedDateStr.split('-');
-    if (parts.length !== 3) return { dayName: 'MON', formatted: selectedDateStr };
-
-    const y = parseInt(parts[0]);
-    const m = parseInt(parts[1]) - 1;
-    const d = parseInt(parts[2]);
-    const dt = new Date(y, m, d);
-
-    const dayIdx = dt.getDay();
-    const daysMap: DayOfWeek[] = ['MON', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const dow = daysMap[dayIdx] || 'MON';
-
-    const formatted = dt.toLocaleDateString('en-US', {
-      weekday: 'short',
+    const [y, m, d] = selectedDateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const shortDays: DayOfWeek[] = ['SUN' as any, 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const dayName = dayNames[dateObj.getDay()];
+    const shortDay = shortDays[dateObj.getDay()] || 'MON';
+    const formatted = `${dayName}, ${dateObj.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
-    });
-
-    return { dayName: dow, formatted };
+      year: 'numeric',
+    })}`;
+    return { dayName, shortDay, formatted };
   }, [selectedDateStr]);
 
-  // Records already logged on the selected date
+  // Records for selected date
   const recordsOnSelectedDate = useMemo(() => {
-    return records.filter(r => {
-      if (selectedSubjectId !== 'ALL' && r.subjectId !== selectedSubjectId) {
-        return false;
-      }
-      return r.date === selectedDateStr;
-    });
-  }, [records, selectedDateStr, selectedSubjectId]);
+    return records.filter(r => r.date === selectedDateStr);
+  }, [records, selectedDateStr]);
 
   // Subjects to show for this date:
   // Show timetable scheduled subjects first, plus all registered subjects so user can mark anything!
   const displaySubjects = useMemo(() => {
-    const scheduledSlots = timetable.filter(t => t.day === selectedDayInfo.dayName);
+    const scheduledSlots = timetable.filter(t => t.day === selectedDayInfo.shortDay);
     const scheduledSubIds = new Set(scheduledSlots.map(s => s.subjectId));
 
     if (selectedSubjectId !== 'ALL') {
@@ -214,7 +263,7 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
     const nonScheduledSubs = subjects.filter(s => !scheduledSubIds.has(s.id));
 
     return [...scheduledSubs, ...nonScheduledSubs];
-  }, [subjects, timetable, selectedDayInfo.dayName, selectedSubjectId]);
+  }, [subjects, timetable, selectedDayInfo.shortDay, selectedSubjectId]);
 
   // Handle 1-tap mark or switch status for a course on the selected date
   const handleMarkCourse = async (
@@ -239,21 +288,28 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
     }
   };
 
-  // Mark all subjects present for this day in 1 tap
+  // Mark all subjects present for this day in 1 atomic tap without race conditions
   const handleMarkAllPresent = async () => {
     AppHaptics.success();
-    for (const sub of displaySubjects) {
-      const existing = recordsOnSelectedDate.find(r => r.subjectId === sub.id);
-      if (existing) {
-        if (existing.status !== 'PRESENT') {
-          await editAttendanceRecord(existing.id, 'PRESENT');
-        }
-      } else {
-        await markAttendance(sub.id, 'PRESENT', {
-          date: selectedDateStr,
-          time: '09:30 – 10:30',
-        });
-      }
+    const scheduledSlots = timetable.filter(t => t.day === selectedDayInfo.shortDay);
+    
+    // If timetable slots exist for this day, mark all scheduled slots
+    if (scheduledSlots.length > 0) {
+      await markAllSlotsAttendance(scheduledSlots, 'PRESENT', selectedDateStr);
+    } else {
+      // If no slots exist for this day, create virtual slots for display subjects
+      const virtualSlots = displaySubjects.map(sub => ({
+        id: `virtual_${sub.id}`,
+        subjectId: sub.id,
+        subjectName: sub.name,
+        subjectCode: sub.code,
+        type: sub.type,
+        day: selectedDayInfo.shortDay,
+        startTime: '09:30',
+        endTime: '10:30',
+        room: sub.room || 'A-204',
+      }));
+      await markAllSlotsAttendance(virtualSlots, 'PRESENT', selectedDateStr);
     }
   };
 
@@ -276,31 +332,31 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalSheet}>
+      <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+        <View style={[styles.modalSheet, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
           {/* Top Bar Header */}
-          <View style={styles.modalHeader}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
             <View>
               <View style={styles.eyebrowRow}>
-                <CalendarIcon size={11} color={THEME.colors.cyan} />
-                <Text style={styles.eyebrow}>CALENDAR ATTENDANCE</Text>
+                <CalendarIcon size={11} color={colors.accent} />
+                <Text style={[styles.eyebrow, { color: colors.accent }]}>CALENDAR ATTENDANCE</Text>
               </View>
-              <Text style={styles.modalTitle}>Mark & Edit Attendance</Text>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Mark & Edit Attendance</Text>
             </View>
 
             <TouchableOpacity
-              style={styles.closeBtn}
+              style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
               onPress={() => {
                 AppHaptics.light();
                 onClose();
               }}
             >
-              <X size={18} color={THEME.colors.textSecondary} />
+              <X size={18} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
           {/* Subject Filter Chips */}
-          <View style={styles.filterWrapper}>
+          <View style={[styles.filterWrapper, { borderBottomColor: colors.borderSubtle }]}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -309,7 +365,8 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
               <TouchableOpacity
                 style={[
                   styles.filterPill,
-                  selectedSubjectId === 'ALL' && styles.filterPillActive,
+                  { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                  selectedSubjectId === 'ALL' && { backgroundColor: colors.surfaceElevated, borderColor: colors.accent },
                 ]}
                 onPress={() => {
                   AppHaptics.selection();
@@ -319,7 +376,8 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                 <Text
                   style={[
                     styles.filterPillText,
-                    selectedSubjectId === 'ALL' && styles.filterPillTextActive,
+                    { color: colors.textTertiary },
+                    selectedSubjectId === 'ALL' && { color: colors.textPrimary },
                   ]}
                 >
                   All Courses
@@ -331,7 +389,11 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                 return (
                   <TouchableOpacity
                     key={s.id}
-                    style={[styles.filterPill, isSelected && styles.filterPillActive]}
+                    style={[
+                      styles.filterPill,
+                      { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                      isSelected && { backgroundColor: colors.surfaceElevated, borderColor: colors.accent },
+                    ]}
                     onPress={() => {
                       AppHaptics.selection();
                       setSelectedSubjectId(s.id);
@@ -340,7 +402,8 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                     <Text
                       style={[
                         styles.filterPillText,
-                        isSelected && styles.filterPillTextActive,
+                        { color: colors.textTertiary },
+                        isSelected && { color: colors.textPrimary },
                       ]}
                     >
                       {s.code}
@@ -355,43 +418,85 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}
           >
+            {/* 📊 Live Course Attendance Metrics Banner */}
+            <View style={[styles.courseOverviewCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              <View style={styles.courseOverviewTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.courseOverviewTitle, { color: colors.textPrimary }]} numberOfLines={1}>
+                    {activeCourseStats.title}
+                  </Text>
+                  <Text style={[styles.courseOverviewSub, { color: colors.textTertiary }]}>
+                    {activeCourseStats.code} · Total {activeCourseStats.total} Classes
+                  </Text>
+                </View>
+
+                <View style={[styles.coursePctBadge, { backgroundColor: activeCourseStats.pct >= 75 ? colors.emeraldSubtle : colors.crimsonSubtle }]}>
+                  <Text style={[styles.coursePctText, { color: activeCourseStats.pct >= 75 ? colors.emerald : colors.crimson }]}>
+                    {activeCourseStats.pct.toFixed(1)}%
+                  </Text>
+                </View>
+              </View>
+
+              {/* Metric Pillars */}
+              <View style={[styles.metricPillarsRow, { borderTopColor: colors.borderSubtle }]}>
+                <View style={styles.metricPillar}>
+                  <Text style={[styles.pillarValue, { color: colors.emerald }]}>{activeCourseStats.attended}</Text>
+                  <Text style={[styles.pillarLabel, { color: colors.textTertiary }]}>ATTENDED</Text>
+                </View>
+
+                <View style={styles.metricPillar}>
+                  <Text style={[styles.pillarValue, { color: colors.crimson }]}>{activeCourseStats.missed}</Text>
+                  <Text style={[styles.pillarLabel, { color: colors.textTertiary }]}>MISSED</Text>
+                </View>
+
+                <View style={styles.metricPillar}>
+                  <Text style={[styles.pillarValue, { color: activeCourseStats.buffer >= 0 ? colors.accent : colors.crimson }]}>
+                    {activeCourseStats.buffer >= 0 ? `+${activeCourseStats.buffer}` : activeCourseStats.buffer}
+                  </Text>
+                  <Text style={[styles.pillarLabel, { color: colors.textTertiary }]}>
+                    {activeCourseStats.buffer >= 0 ? 'SAFE BUFFER' : 'SHORTAGE'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
             {/* 🗓️ Compact Month Calendar Card */}
-            <View style={styles.calendarCard}>
+            <View style={[styles.calendarCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
               {/* Month Navigation Row */}
               <View style={styles.monthNavRow}>
                 <TouchableOpacity
-                  style={styles.monthArrowBtn}
+                  style={[styles.monthArrowBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
                   onPress={handlePrevMonth}
                 >
-                  <ChevronLeft size={16} color={THEME.colors.textPrimary} />
+                  <ChevronLeft size={16} color={colors.textPrimary} />
                 </TouchableOpacity>
 
-                <Text style={styles.monthTitleText}>
+                <Text style={[styles.monthTitleText, { color: colors.textPrimary }]}>
                   {MONTH_NAMES[currentMonth.getMonth()]}{' '}
                   {currentMonth.getFullYear()}
                 </Text>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <TouchableOpacity
-                    style={styles.todayPillBtn}
+                    style={[styles.todayPillBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.accent }]}
                     onPress={handleJumpToToday}
                   >
-                    <Text style={styles.todayPillText}>Today</Text>
+                    <Text style={[styles.todayPillText, { color: colors.accent }]}>Today</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={styles.monthArrowBtn}
+                    style={[styles.monthArrowBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
                     onPress={handleNextMonth}
                   >
-                    <ChevronRight size={16} color={THEME.colors.textPrimary} />
+                    <ChevronRight size={16} color={colors.textPrimary} />
                   </TouchableOpacity>
                 </View>
               </View>
 
               {/* Day Labels */}
-              <View style={styles.weekdayHeaderRow}>
+              <View style={[styles.weekdayHeaderRow, { borderBottomColor: colors.borderSubtle }]}>
                 {WEEKDAY_SHORT.map((wd, i) => (
-                  <Text key={`wd_${i}`} style={styles.weekdayLabel}>
+                  <Text key={`wd_${i}`} style={[styles.weekdayLabel, { color: colors.textTertiary }]}>
                     {wd}
                   </Text>
                 ))}
@@ -417,8 +522,8 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                       key={cd.dateStr}
                       style={[
                         styles.dateCell,
-                        cd.isSelected && styles.dateCellSelected,
-                        cd.isToday && !cd.isSelected && styles.dateCellToday,
+                        cd.isSelected && [styles.dateCellSelected, { backgroundColor: colors.surfaceElevated, borderColor: colors.accent }],
+                        cd.isToday && !cd.isSelected && [styles.dateCellToday, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderHighlight }],
                       ]}
                       activeOpacity={0.7}
                       onPress={() => {
@@ -429,8 +534,9 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                       <Text
                         style={[
                           styles.dateNumberText,
-                          cd.isSelected && styles.dateNumberTextSelected,
-                          cd.isToday && !cd.isSelected && styles.dateNumberTextToday,
+                          { color: colors.textSecondary },
+                          cd.isSelected && [styles.dateNumberTextSelected, { color: colors.accent }],
+                          cd.isToday && !cd.isSelected && [styles.dateNumberTextToday, { color: colors.textPrimary }],
                         ]}
                       >
                         {cd.dayNumber}
@@ -438,10 +544,10 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
 
                       {/* Status Dots */}
                       <View style={styles.statusDotRow}>
-                        {hasPresent && <View style={[styles.dot, styles.dotPresent]} />}
-                        {hasAbsent && <View style={[styles.dot, styles.dotAbsent]} />}
+                        {hasPresent && <View style={[styles.dot, { backgroundColor: colors.emerald }]} />}
+                        {hasAbsent && <View style={[styles.dot, { backgroundColor: colors.crimson }]} />}
                         {hasCancelled && (
-                          <View style={[styles.dot, styles.dotCancelled]} />
+                          <View style={[styles.dot, { backgroundColor: colors.textTertiary }]} />
                         )}
                       </View>
                     </TouchableOpacity>
@@ -451,21 +557,21 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
             </View>
 
             {/* 🎯 SELECTED DATE & MARKING ACTIONS SECTION */}
-            <View style={styles.markingSection}>
+            <View style={[styles.markingSection, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
               {/* Selected Day Banner */}
-              <View style={styles.dateBannerRow}>
+              <View style={[styles.dateBannerRow, { borderBottomColor: colors.borderSubtle }]}>
                 <View>
-                  <Text style={styles.dateBannerTitle}>
+                  <Text style={[styles.dateBannerTitle, { color: colors.textPrimary }]}>
                     {selectedDayInfo.formatted.toUpperCase()}
                   </Text>
-                  <Text style={styles.dateBannerSub}>
+                  <Text style={[styles.dateBannerSub, { color: colors.textTertiary }]}>
                     {recordsOnSelectedDate.length > 0 ? (
                       <Text>
-                        <Text style={{ color: THEME.colors.emerald, fontWeight: '800' }}>
+                        <Text style={{ color: colors.emerald, fontWeight: '800' }}>
                           {daySummary.pres + daySummary.od} Attended
                         </Text>{' '}
                         ·{' '}
-                        <Text style={{ color: THEME.colors.crimson, fontWeight: '800' }}>
+                        <Text style={{ color: colors.crimson, fontWeight: '800' }}>
                           {daySummary.abs} Missed
                         </Text>{' '}
                         ({daySummary.total > 0 ? `${daySummary.pct.toFixed(0)}%` : '0%'})
@@ -478,12 +584,18 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
 
                 {displaySubjects.length > 0 && (
                   <TouchableOpacity
-                    style={styles.markAllPresentBtn}
+                    style={[
+                      styles.markAllPresentBtn,
+                      {
+                        backgroundColor: colors.emeraldSubtle,
+                        borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : 'rgba(46, 139, 99, 0.4)',
+                      },
+                    ]}
                     activeOpacity={0.8}
                     onPress={handleMarkAllPresent}
                   >
-                    <CheckCheck size={12} color={THEME.colors.emerald} />
-                    <Text style={styles.markAllPresentText}>Mark All Present</Text>
+                    <CheckCheck size={12} color={colors.emerald} />
+                    <Text style={[styles.markAllPresentText, { color: colors.emerald }]}>Mark All Present</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -492,8 +604,8 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
               <View style={styles.coursesList}>
                 {displaySubjects.length === 0 ? (
                   <View style={styles.noCoursesCard}>
-                    <Text style={styles.noCoursesText}>No courses created yet.</Text>
-                    <Text style={styles.noCoursesSub}>
+                    <Text style={[styles.noCoursesText, { color: colors.textSecondary }]}>No courses created yet.</Text>
+                    <Text style={[styles.noCoursesSub, { color: colors.textTertiary }]}>
                       Add courses on the main screen to start marking attendance.
                     </Text>
                   </View>
@@ -505,17 +617,17 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                     const activeStatus = existingRecord?.status;
 
                     const scheduledSlot = timetable.find(
-                      t => t.day === selectedDayInfo.dayName && t.subjectId === sub.id
+                      t => t.day === selectedDayInfo.shortDay && t.subjectId === sub.id
                     );
 
                     return (
-                      <View key={sub.id} style={styles.courseMarkCard}>
+                      <View key={sub.id} style={[styles.courseMarkCard, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}>
                         <View style={styles.courseInfoRow}>
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.courseNameText} numberOfLines={1}>
+                            <Text style={[styles.courseNameText, { color: colors.textPrimary }]} numberOfLines={1}>
                               {sub.name}
                             </Text>
-                            <Text style={styles.courseSlotText}>
+                            <Text style={[styles.courseSlotText, { color: colors.textTertiary }]}>
                               {scheduledSlot
                                 ? `${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
                                 : 'Registered Course'}
@@ -523,8 +635,8 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                             </Text>
                           </View>
 
-                          <View style={styles.codeBadge}>
-                            <Text style={styles.codeBadgeText}>{sub.code}</Text>
+                          <View style={[styles.codeBadge, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                            <Text style={[styles.codeBadgeText, { color: colors.accent }]}>{sub.code}</Text>
                           </View>
                         </View>
 
@@ -534,8 +646,15 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                           <TouchableOpacity
                             style={[
                               styles.btnStatus,
-                              styles.btnPresent,
-                              activeStatus === 'PRESENT' && styles.btnPresentActive,
+                              {
+                                backgroundColor: colors.surface,
+                                borderColor: isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(46, 139, 99, 0.2)',
+                              },
+                              activeStatus === 'PRESENT' && {
+                                backgroundColor: colors.emeraldSubtle,
+                                borderColor: colors.emerald,
+                                borderWidth: 1.5,
+                              },
                             ]}
                             activeOpacity={0.75}
                             onPress={() =>
@@ -552,15 +671,16 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                               size={12}
                               color={
                                 activeStatus === 'PRESENT'
-                                  ? THEME.colors.emerald
-                                  : THEME.colors.textSecondary
+                                  ? colors.emerald
+                                  : colors.textSecondary
                               }
                             />
                             <Text
                               style={[
                                 styles.btnStatusText,
+                                { color: colors.textSecondary },
                                 activeStatus === 'PRESENT' && {
-                                  color: THEME.colors.emerald,
+                                  color: colors.emerald,
                                   fontWeight: '900',
                                 },
                               ]}
@@ -573,8 +693,15 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                           <TouchableOpacity
                             style={[
                               styles.btnStatus,
-                              styles.btnAbsent,
-                              activeStatus === 'ABSENT' && styles.btnAbsentActive,
+                              {
+                                backgroundColor: colors.surface,
+                                borderColor: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(200, 92, 92, 0.2)',
+                              },
+                              activeStatus === 'ABSENT' && {
+                                backgroundColor: colors.crimsonSubtle,
+                                borderColor: colors.crimson,
+                                borderWidth: 1.5,
+                              },
                             ]}
                             activeOpacity={0.75}
                             onPress={() =>
@@ -591,15 +718,16 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                               size={12}
                               color={
                                 activeStatus === 'ABSENT'
-                                  ? THEME.colors.crimson
-                                  : THEME.colors.textSecondary
+                                  ? colors.crimson
+                                  : colors.textSecondary
                               }
                             />
                             <Text
                               style={[
                                 styles.btnStatusText,
+                                { color: colors.textSecondary },
                                 activeStatus === 'ABSENT' && {
-                                  color: THEME.colors.crimson,
+                                  color: colors.crimson,
                                   fontWeight: '900',
                                 },
                               ]}
@@ -608,43 +736,20 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                             </Text>
                           </TouchableOpacity>
 
-                          {/* OD Button */}
+                          {/* No Class Button */}
                           <TouchableOpacity
                             style={[
                               styles.btnStatus,
-                              styles.btnOD,
-                              activeStatus === 'OD' && styles.btnODActive,
-                            ]}
-                            activeOpacity={0.75}
-                            onPress={() =>
-                              handleMarkCourse(
-                                sub.id,
-                                'OD',
-                                scheduledSlot
-                                  ? `${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
-                                  : '09:30 – 10:30'
-                              )
-                            }
-                          >
-                            <Text
-                              style={[
-                                styles.btnStatusText,
-                                activeStatus === 'OD' && {
-                                  color: THEME.colors.cyan,
-                                  fontWeight: '900',
-                                },
-                              ]}
-                            >
-                              OD
-                            </Text>
-                          </TouchableOpacity>
-
-                          {/* Cancelled Button */}
-                          <TouchableOpacity
-                            style={[
-                              styles.btnStatus,
-                              styles.btnCancel,
-                              activeStatus === 'CANCELLED' && styles.btnCancelActive,
+                              {
+                                backgroundColor: colors.surface,
+                                borderColor: colors.borderSubtle,
+                                flex: 1,
+                              },
+                              activeStatus === 'CANCELLED' && {
+                                backgroundColor: colors.surfaceElevated,
+                                borderColor: colors.textPrimary,
+                                borderWidth: 1.5,
+                              },
                             ]}
                             activeOpacity={0.75}
                             onPress={() =>
@@ -660,13 +765,14 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                             <Text
                               style={[
                                 styles.btnStatusText,
+                                { color: colors.textSecondary },
                                 activeStatus === 'CANCELLED' && {
-                                  color: THEME.colors.textPrimary,
+                                  color: colors.textPrimary,
                                   fontWeight: '900',
                                 },
                               ]}
                             >
-                              Off
+                              No Class
                             </Text>
                           </TouchableOpacity>
                         </View>
@@ -686,16 +792,13 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.88)',
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: THEME.colors.background,
     borderTopLeftRadius: THEME.borderRadius.xxl,
     borderTopRightRadius: THEME.borderRadius.xxl,
     maxHeight: '94%',
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -705,7 +808,6 @@ const styles = StyleSheet.create({
     paddingTop: THEME.spacing.lg,
     paddingBottom: THEME.spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
   },
   eyebrowRow: {
     flexDirection: 'row',
@@ -716,22 +818,18 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.cyan,
     letterSpacing: THEME.typography.letterSpacing.widest,
   },
   modalTitle: {
     fontSize: THEME.typography.sizes.md + 1,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
   },
   closeBtn: {
     padding: 6,
     borderRadius: THEME.borderRadius.pill,
-    backgroundColor: THEME.colors.surfaceSubtle,
   },
   filterWrapper: {
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
   },
   filterScroll: {
     paddingHorizontal: THEME.spacing.xl,
@@ -739,24 +837,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   filterPill: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
-  },
-  filterPillActive: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderColor: THEME.colors.cyan,
   },
   filterPillText: {
     fontSize: 10,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textTertiary,
-  },
-  filterPillTextActive: {
-    color: THEME.colors.textPrimary,
   },
   scrollContent: {
     paddingHorizontal: THEME.spacing.xl,
@@ -764,12 +852,62 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     gap: 12,
   },
+  courseOverviewCard: {
+    borderRadius: THEME.borderRadius.lg,
+    padding: 12,
+    borderWidth: 1,
+  },
+  courseOverviewTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  courseOverviewTitle: {
+    fontSize: 13,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: -0.2,
+  },
+  courseOverviewSub: {
+    fontSize: 9.5,
+    fontWeight: THEME.typography.weights.medium,
+    marginTop: 1,
+  },
+  coursePctBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: THEME.borderRadius.pill,
+  },
+  coursePctText: {
+    fontSize: 12,
+    fontWeight: THEME.typography.weights.heavy,
+  },
+  metricPillarsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
+  metricPillar: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  pillarValue: {
+    fontSize: 13,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: -0.2,
+  },
+  pillarLabel: {
+    fontSize: 7.5,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: 0.5,
+    marginTop: 1,
+  },
   calendarCard: {
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.lg,
     padding: 10,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   monthNavRow: {
     flexDirection: 'row',
@@ -780,34 +918,27 @@ const styles = StyleSheet.create({
   monthArrowBtn: {
     padding: 5,
     borderRadius: THEME.borderRadius.pill,
-    backgroundColor: THEME.colors.surfaceSubtle,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   monthTitleText: {
     fontSize: 12,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
     letterSpacing: 0.2,
   },
   todayPillBtn: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    borderColor: THEME.colors.cyan,
   },
   todayPillText: {
     fontSize: 8.5,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.cyan,
   },
   weekdayHeaderRow: {
     flexDirection: 'row',
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
     marginBottom: 4,
   },
   weekdayLabel: {
@@ -815,7 +946,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textTertiary,
   },
   gridContainer: {
     flexDirection: 'row',
@@ -834,27 +964,19 @@ const styles = StyleSheet.create({
     height: 32,
   },
   dateCellSelected: {
-    backgroundColor: THEME.colors.surfaceElevated,
     borderWidth: 1.5,
-    borderColor: THEME.colors.cyan,
   },
   dateCellToday: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     borderWidth: 1,
-    borderColor: THEME.colors.borderHighlight,
   },
   dateNumberText: {
     fontSize: 11,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textSecondary,
   },
   dateNumberTextSelected: {
-    color: THEME.colors.cyan,
     fontWeight: THEME.typography.weights.heavy,
   },
-  dateNumberTextToday: {
-    color: THEME.colors.textPrimary,
-  },
+  dateNumberTextToday: {},
   statusDotRow: {
     flexDirection: 'row',
     gap: 2,
@@ -866,21 +988,10 @@ const styles = StyleSheet.create({
     height: 3,
     borderRadius: 1.5,
   },
-  dotPresent: {
-    backgroundColor: THEME.colors.emerald,
-  },
-  dotAbsent: {
-    backgroundColor: THEME.colors.crimson,
-  },
-  dotCancelled: {
-    backgroundColor: THEME.colors.textTertiary,
-  },
   markingSection: {
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.lg,
     padding: 12,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   dateBannerRow: {
     flexDirection: 'row',
@@ -888,45 +999,37 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
     marginBottom: 10,
   },
   dateBannerTitle: {
     fontSize: 11,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
     letterSpacing: 0.5,
   },
   dateBannerSub: {
     fontSize: 9.5,
-    color: THEME.colors.textTertiary,
     marginTop: 2,
   },
   markAllPresentBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: THEME.colors.emeraldSubtle,
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.4)',
   },
   markAllPresentText: {
     fontSize: 9.5,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.emerald,
   },
   coursesList: {
     gap: 8,
   },
   courseMarkCard: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     borderRadius: THEME.borderRadius.md,
     padding: 10,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   courseInfoRow: {
     flexDirection: 'row',
@@ -937,25 +1040,20 @@ const styles = StyleSheet.create({
   courseNameText: {
     fontSize: 11.5,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textPrimary,
   },
   courseSlotText: {
     fontSize: 9.5,
-    color: THEME.colors.textTertiary,
     marginTop: 1,
   },
   codeBadge: {
-    backgroundColor: THEME.colors.surface,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   codeBadgeText: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.cyan,
   },
   buttonsRow: {
     flexDirection: 'row',
@@ -969,48 +1067,11 @@ const styles = StyleSheet.create({
     gap: 3,
     paddingVertical: 7,
     borderRadius: THEME.borderRadius.sm,
-    backgroundColor: THEME.colors.surface,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   btnStatusText: {
     fontSize: 10,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textSecondary,
-  },
-  btnPresent: {
-    borderColor: 'rgba(16, 185, 129, 0.2)',
-  },
-  btnPresentActive: {
-    backgroundColor: THEME.colors.emeraldSubtle,
-    borderColor: THEME.colors.emerald,
-    borderWidth: 1.5,
-  },
-  btnAbsent: {
-    borderColor: 'rgba(239, 68, 68, 0.2)',
-  },
-  btnAbsentActive: {
-    backgroundColor: THEME.colors.crimsonSubtle,
-    borderColor: THEME.colors.crimson,
-    borderWidth: 1.5,
-  },
-  btnOD: {
-    borderColor: 'rgba(56, 189, 248, 0.2)',
-    flex: 0.7,
-  },
-  btnODActive: {
-    backgroundColor: THEME.colors.cyanSubtle,
-    borderColor: THEME.colors.cyan,
-    borderWidth: 1.5,
-  },
-  btnCancel: {
-    borderColor: THEME.colors.borderSubtle,
-    flex: 0.7,
-  },
-  btnCancelActive: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderColor: THEME.colors.textPrimary,
-    borderWidth: 1.5,
   },
   noCoursesCard: {
     padding: 16,
@@ -1019,11 +1080,9 @@ const styles = StyleSheet.create({
   noCoursesText: {
     fontSize: 11,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textSecondary,
   },
   noCoursesSub: {
     fontSize: 9.5,
-    color: THEME.colors.textTertiary,
     textAlign: 'center',
     marginTop: 2,
   },

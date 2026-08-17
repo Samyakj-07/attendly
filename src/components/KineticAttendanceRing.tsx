@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated } from 'react-native';
 import Svg, { Circle, Line, Defs, LinearGradient, Stop } from 'react-native-svg';
-import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -18,8 +18,10 @@ export const KineticAttendanceRing: React.FC<KineticAttendanceRingProps> = ({
   target = 75,
   size = 230,
   strokeWidth = 4,
-  statusColor = THEME.colors.emerald,
+  statusColor,
 }) => {
+  const { colors, isDark } = useTheme();
+  const activeStatusColor = statusColor || colors.emerald;
   const animatedProgress = useRef(new Animated.Value(percentage)).current;
 
   useEffect(() => {
@@ -68,7 +70,7 @@ export const KineticAttendanceRing: React.FC<KineticAttendanceRingProps> = ({
         y1={y1}
         x2={x2}
         y2={y2}
-        stroke={isMajor ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.07)'}
+        stroke={isMajor ? colors.tickMajor : colors.tickMinor}
         strokeWidth={isMajor ? 1.5 : 0.75}
       />
     );
@@ -79,8 +81,8 @@ export const KineticAttendanceRing: React.FC<KineticAttendanceRingProps> = ({
       <Svg width={size} height={size}>
         <Defs>
           <LinearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor={statusColor} stopOpacity="0.6" />
-            <Stop offset="100%" stopColor={statusColor} stopOpacity="1" />
+            <Stop offset="0%" stopColor={activeStatusColor} stopOpacity={isDark ? 0.6 : 0.75} />
+            <Stop offset="100%" stopColor={activeStatusColor} stopOpacity={1} />
           </LinearGradient>
         </Defs>
 
@@ -92,7 +94,7 @@ export const KineticAttendanceRing: React.FC<KineticAttendanceRingProps> = ({
           cx={center}
           cy={center}
           r={radius}
-          stroke="rgba(255, 255, 255, 0.05)"
+          stroke={colors.ringTrack}
           strokeWidth={strokeWidth}
           fill="none"
         />
@@ -117,7 +119,7 @@ export const KineticAttendanceRing: React.FC<KineticAttendanceRingProps> = ({
           y1={notchY1}
           x2={notchX2}
           y2={notchY2}
-          stroke="#FFFFFF"
+          stroke={colors.targetNotch}
           strokeWidth={1.5}
           strokeLinecap="round"
         />

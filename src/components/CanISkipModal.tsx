@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,16 +8,16 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
 import {
   X,
   Sparkles,
-  ShieldCheck,
   ShieldAlert,
-  AlertTriangle,
   CheckCircle2,
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
+import { Analytics } from '../utils/analytics';
 
 interface CanISkipModalProps {
   visible: boolean;
@@ -28,47 +28,58 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
   visible,
   onClose,
 }) => {
+  const { colors, isDark } = useTheme();
   const { todaySkipReport, todayDay } = useAttendance();
+
+  useEffect(() => {
+    if (visible) {
+      Analytics.track('feature_used', {
+        feature: 'can_i_skip',
+        total_classes_today: todaySkipReport.totalClassesToday,
+        is_safe: todaySkipReport.overallIfSkipAllPct >= 75,
+      });
+    }
+  }, [visible]);
 
   const isSafeOverall = todaySkipReport.overallIfSkipAllPct >= 75;
   const isDangerous = todaySkipReport.criticalSubjects.length > 0;
 
   const verdictColor = isDangerous
-    ? THEME.colors.crimson
+    ? colors.crimson
     : isSafeOverall
-    ? THEME.colors.emerald
-    : THEME.colors.amber;
+    ? colors.emerald
+    : colors.amber;
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalSheet}>
+      <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+        <View style={[styles.modalSheet, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
           {/* Header */}
-          <View style={styles.headerRow}>
+          <View style={[styles.headerRow, { borderBottomColor: colors.borderSubtle }]}>
             <View>
               <View style={styles.eyebrowRow}>
-                <Sparkles size={11} color={THEME.colors.cyan} />
-                <Text style={styles.eyebrow}>SKIP ANALYSIS · {todayDay}</Text>
+                <Sparkles size={11} color={colors.indigo} />
+                <Text style={[styles.eyebrow, { color: colors.indigo }]}>ATTENDLY FORECAST · {todayDay}</Text>
               </View>
-              <Text style={styles.modalTitle}>Daily Skip Intelligence</Text>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Can I skip today?</Text>
             </View>
 
             <TouchableOpacity
-              style={styles.closeBtn}
+              style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
               onPress={() => {
                 AppHaptics.light();
                 onClose();
               }}
             >
-              <X size={18} color={THEME.colors.textSecondary} />
+              <X size={18} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {/* 1. Verdict Hero Card */}
-            <View style={[styles.verdictCard, { borderColor: verdictColor }]}>
+            <View style={[styles.verdictCard, { backgroundColor: colors.surface, borderColor: verdictColor }]}>
               <View style={styles.verdictTop}>
-                <View style={[styles.verdictBadge, { borderColor: verdictColor }]}>
+                <View style={[styles.verdictBadge, { borderColor: verdictColor, backgroundColor: colors.surfaceSubtle }]}>
                   {isSafeOverall && !isDangerous ? (
                     <CheckCircle2 size={12} color={verdictColor} />
                   ) : (
@@ -80,28 +91,28 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
                 </View>
               </View>
 
-              <Text style={styles.verdictSummary}>"{todaySkipReport.summaryAdvice}"</Text>
+              <Text style={[styles.verdictSummary, { color: colors.textPrimary }]}>"{todaySkipReport.summaryAdvice}"</Text>
             </View>
 
             {/* 2. Safest Class to Miss Banner */}
             {todaySkipReport.safestSubject && (
-              <View style={styles.safestBox}>
-                <Text style={styles.safestLabel}>SAFEST TO MISS TODAY</Text>
+              <View style={[styles.safestBox, { backgroundColor: colors.surfaceSubtle, borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(46, 139, 99, 0.3)' }]}>
+                <Text style={[styles.safestLabel, { color: colors.emerald }]}>SAFEST TO MISS TODAY</Text>
                 <View style={styles.safestRow}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.safestName}>
+                    <Text style={[styles.safestName, { color: colors.textPrimary }]}>
                       {todaySkipReport.safestSubject.name}
                     </Text>
-                    <Text style={styles.safestTime}>
+                    <Text style={[styles.safestTime, { color: colors.textTertiary }]}>
                       {todaySkipReport.safestSubject.code} · {todaySkipReport.safestSubject.type}
                     </Text>
                   </View>
 
                   <View style={styles.safestStats}>
-                    <Text style={styles.safestPct}>
+                    <Text style={[styles.safestPct, { color: colors.emerald }]}>
                       {((todaySkipReport.safestSubject.attended / (todaySkipReport.safestSubject.total || 1)) * 100).toFixed(1)}%
                     </Text>
-                    <Text style={styles.safestBuffer}>
+                    <Text style={[styles.safestBuffer, { color: colors.textTertiary }]}>
                       +{Math.floor((todaySkipReport.safestSubject.attended - 0.75 * (todaySkipReport.safestSubject.total + 1)) / 0.75)} buffer
                     </Text>
                   </View>
@@ -110,29 +121,29 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
             )}
 
             {/* 3. Class-by-Class Risk Breakdown */}
-            <Text style={styles.sectionHeader}>SEQUENTIAL RISK ANALYSIS</Text>
+            <Text style={[styles.sectionHeader, { color: colors.textTertiary }]}>SEQUENTIAL RISK ANALYSIS</Text>
 
             {todaySkipReport.analyzedSlots.length === 0 ? (
               <View style={styles.emptyBox}>
-                <Text style={styles.emptyText}>No classes scheduled for {todayDay}.</Text>
+                <Text style={[styles.emptyText, { color: colors.textTertiary }]}>No classes scheduled for {todayDay}.</Text>
               </View>
             ) : (
               todaySkipReport.analyzedSlots.map((item, idx) => {
                 const isItemSafe = item.category === 'SAFEST_TO_MISS';
                 const isItemCritical = item.category === 'DO_NOT_MISS';
                 const itemColor = isItemSafe
-                  ? THEME.colors.emerald
+                  ? colors.emerald
                   : isItemCritical
-                  ? THEME.colors.crimson
-                  : THEME.colors.amber;
+                  ? colors.crimson
+                  : colors.amber;
 
                 return (
-                  <View key={`skip_eval_${idx}`} style={styles.evalItem}>
+                  <View key={`skip_eval_${idx}`} style={[styles.evalItem, { borderBottomColor: colors.borderSubtle }]}>
                     <View style={styles.evalLeft}>
                       <View style={[styles.evalDot, { backgroundColor: itemColor }]} />
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.evalName}>{item.subject.name}</Text>
-                        <Text style={styles.evalReason}>{item.advice}</Text>
+                        <Text style={[styles.evalName, { color: colors.textPrimary }]}>{item.subject.name}</Text>
+                        <Text style={[styles.evalReason, { color: colors.textTertiary }]}>{item.advice}</Text>
                       </View>
                     </View>
 
@@ -140,17 +151,17 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
                       <Text style={[styles.evalPct, { color: itemColor }]}>
                         {item.postSkipPercentage.toFixed(1)}%
                       </Text>
-                      <Text style={styles.evalSub}>if skipped</Text>
+                      <Text style={[styles.evalSub, { color: colors.textTertiary }]}>if skipped</Text>
                     </View>
                   </View>
                 );
               })
             )}
 
-            {/* IPU Rule Note */}
-            <View style={styles.ruleNotice}>
-              <Text style={styles.ruleNoticeText}>
-                <strong>Ordinance 11:</strong> Minimum 75% attendance in each course is required to sit for End-Term University examinations.
+            {/* Attendance Rule Note */}
+            <View style={[styles.ruleNotice, { backgroundColor: colors.surfaceSubtle }]}>
+              <Text style={[styles.ruleNoticeText, { color: colors.textTertiary }]}>
+                Minimum 75% attendance in each course is required to sit for End-Term University examinations.
               </Text>
             </View>
           </ScrollView>
@@ -163,16 +174,13 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.88)',
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    backgroundColor: THEME.colors.background,
     borderTopLeftRadius: THEME.borderRadius.xxl,
     borderTopRightRadius: THEME.borderRadius.xxl,
     maxHeight: '88%',
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
   },
   headerRow: {
     flexDirection: 'row',
@@ -182,7 +190,6 @@ const styles = StyleSheet.create({
     paddingTop: THEME.spacing.xl,
     paddingBottom: THEME.spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
   },
   eyebrowRow: {
     flexDirection: 'row',
@@ -193,25 +200,21 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.cyan,
     letterSpacing: THEME.typography.letterSpacing.widest,
   },
   modalTitle: {
     fontSize: THEME.typography.sizes.lg,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
   },
   closeBtn: {
     padding: 6,
     borderRadius: THEME.borderRadius.pill,
-    backgroundColor: THEME.colors.surfaceSubtle,
   },
   scrollContent: {
     padding: THEME.spacing.xl,
     paddingBottom: 40,
   },
   verdictCard: {
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.xl,
     padding: THEME.spacing.lg,
     borderWidth: 1,
@@ -229,7 +232,6 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    backgroundColor: THEME.colors.surfaceSubtle,
   },
   verdictBadgeText: {
     fontSize: 10,
@@ -238,22 +240,18 @@ const styles = StyleSheet.create({
   },
   verdictSummary: {
     fontSize: THEME.typography.sizes.sm,
-    color: THEME.colors.textPrimary,
     lineHeight: 20,
     fontWeight: THEME.typography.weights.medium,
   },
   safestBox: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     borderRadius: THEME.borderRadius.lg,
     padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
     marginBottom: THEME.spacing.lg,
   },
   safestLabel: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.emerald,
     letterSpacing: 1,
     marginBottom: 6,
   },
@@ -265,11 +263,9 @@ const styles = StyleSheet.create({
   safestName: {
     fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textPrimary,
   },
   safestTime: {
     fontSize: 11,
-    color: THEME.colors.textTertiary,
     marginTop: 2,
   },
   safestStats: {
@@ -278,17 +274,14 @@ const styles = StyleSheet.create({
   safestPct: {
     fontSize: THEME.typography.sizes.md,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.emerald,
   },
   safestBuffer: {
     fontSize: 10,
-    color: THEME.colors.textTertiary,
     marginTop: 2,
   },
   sectionHeader: {
     fontSize: 10,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textTertiary,
     letterSpacing: 1,
     marginBottom: THEME.spacing.sm,
   },
@@ -298,7 +291,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
   },
   evalLeft: {
     flexDirection: 'row',
@@ -316,11 +308,9 @@ const styles = StyleSheet.create({
   evalName: {
     fontSize: THEME.typography.sizes.xs,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textPrimary,
   },
   evalReason: {
     fontSize: 11,
-    color: THEME.colors.textTertiary,
     marginTop: 2,
   },
   evalRight: {
@@ -333,7 +323,6 @@ const styles = StyleSheet.create({
   },
   evalSub: {
     fontSize: 9,
-    color: THEME.colors.textTertiary,
     marginTop: 1,
   },
   emptyBox: {
@@ -341,18 +330,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    color: THEME.colors.textTertiary,
     fontSize: THEME.typography.sizes.xs,
   },
   ruleNotice: {
     marginTop: THEME.spacing.lg,
     padding: 12,
-    backgroundColor: THEME.colors.surfaceSubtle,
     borderRadius: THEME.borderRadius.md,
   },
   ruleNoticeText: {
     fontSize: 10,
-    color: THEME.colors.textTertiary,
     lineHeight: 14,
   },
 });

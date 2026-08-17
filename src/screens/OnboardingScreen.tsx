@@ -8,8 +8,10 @@ import {
   TextInput,
   Modal,
   SafeAreaView,
+  Image,
 } from 'react-native';
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
 import {
   IPU_COLLEGES,
@@ -19,19 +21,24 @@ import {
 } from '../constants/ipuColleges';
 import { StudentProfile } from '../types';
 import {
-  ShieldCheck,
   Search,
   Check,
   ChevronRight,
   School,
+  Sparkles,
+  ArrowRight,
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
+import { Analytics } from '../utils/analytics';
+
+const APP_LOGO = require('../../assets/icon.png');
 
 export const OnboardingScreen: React.FC = () => {
+  const { colors, shadows, isDark } = useTheme();
   const { updateProfile } = useAttendance();
 
   const [name, setName] = useState('');
-  const [selectedCollege, setSelectedCollege] = useState(IPU_COLLEGES[0]); // First IPU college (USICT)
+  const [selectedCollege, setSelectedCollege] = useState(IPU_COLLEGES[0]); // First college (USICT)
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProgramme, setSelectedProgramme] = useState('B.Tech');
   const [selectedBranch, setSelectedBranch] = useState(IPU_BTECH_BRANCHES[0]);
@@ -56,6 +63,7 @@ export const OnboardingScreen: React.FC = () => {
 
   const handleFinish = async () => {
     AppHaptics.success();
+    const target = parseInt(targetPct) || 75;
     const newProfile: StudentProfile = {
       name: name.trim() || 'Student',
       college: selectedCollege.name,
@@ -67,37 +75,65 @@ export const OnboardingScreen: React.FC = () => {
       academicSession: academicSession.trim() || '2026–27',
       rollNumber: rollNumber.trim(),
       enrollmentNumber: rollNumber.trim(),
-      targetAttendance: parseInt(targetPct) || 75,
+      targetAttendance: target,
       isIPUMode: true,
       isOnboarded: true,
     };
+
+    Analytics.identify({
+      college: selectedCollege.name,
+      collegeShort: selectedCollege.shortName,
+      programme: selectedProgramme,
+      branch: selectedBranch,
+      semester: selectedSemester,
+      targetAttendance: target,
+    });
+
+    Analytics.track('onboarding_completed', {
+      college_short: selectedCollege.shortName,
+      college_name: selectedCollege.name,
+      programme: selectedProgramme,
+      branch: selectedBranch,
+      semester: selectedSemester,
+      target_attendance: target,
+    });
+
     await updateProfile(newProfile);
   };
 
   return (
-    <SafeAreaView style={styles.safeContainer}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Welcome Top Banner */}
-        <View style={styles.topBanner}>
-          <View style={styles.ipuLogoBadge}>
-            <ShieldCheck size={16} color={THEME.colors.cyan} />
-            <Text style={styles.ipuLogoText}>IPU ATTENDANCE OS</Text>
+    <SafeAreaView style={[styles.safeContainer, { backgroundColor: colors.background }]}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ─── HERO BRAND HEADER ─────────────────────────────────────── */}
+        <View style={styles.heroSection}>
+          <View style={[styles.logoContainer, { shadowColor: colors.accent }]}>
+            <Image source={APP_LOGO} style={styles.heroLogo} />
           </View>
-          <Text style={styles.headlineTitle}>Student Profile Setup</Text>
-          <Text style={styles.headlineSubtitle}>
-            Configure your academic profile to track attendance and semester eligibility.
+
+          <Text style={[styles.heroTitle, { color: colors.textPrimary }]}>attendly</Text>
+          <Text style={[styles.heroTagline, { color: colors.accent }]}>STAY AHEAD OF ATTENDANCE.</Text>
+          <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
+            Set up your academic profile to track courses, predictive models, and safe skips.
           </Text>
         </View>
 
-        {/* Form Fields */}
-        <View style={styles.formContainer}>
-          {/* Student Name */}
+        {/* ─── SECTION 1: STUDENT & COLLEGE ──────────────────────────── */}
+        <View style={[styles.cardGroup, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <Text style={[styles.groupHeading, { color: colors.textTertiary }]}>STUDENT IDENTITY</Text>
+
+          {/* Full Name */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>FULL NAME</Text>
+            <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>FULL NAME</Text>
             <TextInput
-              style={styles.textInput}
-              placeholder="Enter your full name"
-              placeholderTextColor={THEME.colors.textTertiary}
+              style={[
+                styles.textInput,
+                { backgroundColor: colors.surfaceSubtle, color: colors.textPrimary, borderColor: colors.borderSubtle },
+              ]}
+              placeholder="e.g. Rohan Sharma"
+              placeholderTextColor={colors.textTertiary}
               value={name}
               onChangeText={setName}
             />
@@ -105,36 +141,82 @@ export const OnboardingScreen: React.FC = () => {
 
           {/* College Selector */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>IPU AFFILIATED COLLEGE / SCHOOL</Text>
+            <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>COLLEGE / INSTITUTE</Text>
             <TouchableOpacity
-              style={styles.selectorButton}
+              style={[
+                styles.selectorButton,
+                { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+              ]}
               activeOpacity={0.7}
               onPress={() => {
                 AppHaptics.light();
                 setIsCollegeModalOpen(true);
               }}
             >
-              <School size={18} color={THEME.colors.cyan} />
+              <View style={[styles.collegeIconBadge, { backgroundColor: colors.accentSubtle }]}>
+                <School size={16} color={colors.accent} />
+              </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.selectorPrimaryText}>{selectedCollege.shortName}</Text>
-                <Text style={styles.selectorSecondaryText} numberOfLines={1}>
+                <Text style={[styles.selectorPrimaryText, { color: colors.textPrimary }]}>
+                  {selectedCollege.shortName}
+                </Text>
+                <Text style={[styles.selectorSecondaryText, { color: colors.textTertiary }]} numberOfLines={1}>
                   {selectedCollege.name}
                 </Text>
               </View>
-              <ChevronRight size={18} color={THEME.colors.textTertiary} />
+              <ChevronRight size={16} color={colors.textTertiary} />
             </TouchableOpacity>
           </View>
 
-          {/* Programme */}
+          {/* Enrollment Number & Section */}
+          <View style={styles.twoColRow}>
+            <View style={[styles.fieldGroup, { flex: 1.2 }]}>
+              <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>ENROLLMENT NO.</Text>
+              <TextInput
+                style={[
+                  styles.textInput,
+                  { backgroundColor: colors.surfaceSubtle, color: colors.textPrimary, borderColor: colors.borderSubtle },
+                ]}
+                placeholder="04520802724"
+                placeholderTextColor={colors.textTertiary}
+                value={rollNumber}
+                onChangeText={setRollNumber}
+                keyboardType="numeric"
+              />
+            </View>
+
+            <View style={[styles.fieldGroup, { flex: 0.8 }]}>
+              <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>SECTION</Text>
+              <TextInput
+                style={[
+                  styles.textInput,
+                  { backgroundColor: colors.surfaceSubtle, color: colors.textPrimary, borderColor: colors.borderSubtle },
+                ]}
+                placeholder="1A"
+                placeholderTextColor={colors.textTertiary}
+                value={section}
+                onChangeText={setSection}
+                autoCapitalize="characters"
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* ─── SECTION 2: ACADEMIC CURRICULUM ────────────────────────── */}
+        <View style={[styles.cardGroup, { backgroundColor: colors.surface, borderColor: colors.borderSubtle, marginTop: 14 }]}>
+          <Text style={[styles.groupHeading, { color: colors.textTertiary }]}>ACADEMIC CURRICULUM</Text>
+
+          {/* Programme Selector */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>PROGRAMME</Text>
+            <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>PROGRAMME</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
               {IPU_PROGRAMMES.map(prog => (
                 <TouchableOpacity
                   key={prog}
                   style={[
                     styles.pillItem,
-                    selectedProgramme === prog && styles.pillItemActive,
+                    { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                    selectedProgramme === prog && { backgroundColor: colors.accentSubtle, borderColor: colors.accent },
                   ]}
                   onPress={() => {
                     AppHaptics.selection();
@@ -144,7 +226,8 @@ export const OnboardingScreen: React.FC = () => {
                   <Text
                     style={[
                       styles.pillItemText,
-                      selectedProgramme === prog && styles.pillItemTextActive,
+                      { color: colors.textSecondary },
+                      selectedProgramme === prog && { color: colors.accent, fontWeight: 'bold' },
                     ]}
                   >
                     {prog}
@@ -154,16 +237,17 @@ export const OnboardingScreen: React.FC = () => {
             </ScrollView>
           </View>
 
-          {/* Branch */}
+          {/* Branch / Specialization */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>BRANCH / SPECIALIZATION</Text>
+            <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>BRANCH / SPECIALIZATION</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
               {availableBranches.map(branch => (
                 <TouchableOpacity
                   key={branch}
                   style={[
                     styles.pillItem,
-                    selectedBranch === branch && styles.pillItemActive,
+                    { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                    selectedBranch === branch && { backgroundColor: colors.accentSubtle, borderColor: colors.accent },
                   ]}
                   onPress={() => {
                     AppHaptics.selection();
@@ -173,7 +257,8 @@ export const OnboardingScreen: React.FC = () => {
                   <Text
                     style={[
                       styles.pillItemText,
-                      selectedBranch === branch && styles.pillItemTextActive,
+                      { color: colors.textSecondary },
+                      selectedBranch === branch && { color: colors.accent, fontWeight: 'bold' },
                     ]}
                   >
                     {branch}
@@ -183,16 +268,17 @@ export const OnboardingScreen: React.FC = () => {
             </ScrollView>
           </View>
 
-          {/* Semester */}
+          {/* Semester Selector */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>SEMESTER</Text>
+            <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>CURRENT SEMESTER</Text>
             <View style={styles.semGrid}>
               {[1, 2, 3, 4, 5, 6, 7, 8].map(s => (
                 <TouchableOpacity
                   key={`sem_${s}`}
                   style={[
                     styles.semButton,
-                    selectedSemester === s && styles.semButtonActive,
+                    { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                    selectedSemester === s && { backgroundColor: colors.accent, borderColor: colors.accent },
                   ]}
                   onPress={() => {
                     AppHaptics.selection();
@@ -202,7 +288,8 @@ export const OnboardingScreen: React.FC = () => {
                   <Text
                     style={[
                       styles.semButtonText,
-                      selectedSemester === s && styles.semButtonTextActive,
+                      { color: colors.textSecondary },
+                      selectedSemester === s && { color: colors.textInverse, fontWeight: '800' },
                     ]}
                   >
                     {s}
@@ -212,74 +299,64 @@ export const OnboardingScreen: React.FC = () => {
             </View>
           </View>
 
-          {/* Section & Target Attendance */}
-          <View style={styles.twoColRow}>
-            <View style={[styles.fieldGroup, { flex: 1 }]}>
-              <Text style={styles.fieldLabel}>SECTION</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. 1A"
-                placeholderTextColor={THEME.colors.textTertiary}
-                value={section}
-                onChangeText={setSection}
-              />
-            </View>
-
-            <View style={[styles.fieldGroup, { flex: 1 }]}>
-              <Text style={styles.fieldLabel}>TARGET ATTENDANCE %</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="75"
-                placeholderTextColor={THEME.colors.textTertiary}
-                value={targetPct}
-                onChangeText={setTargetPct}
-                keyboardType="number-pad"
-              />
-            </View>
-          </View>
-
-          {/* Enrollment / Roll Number (Optional) */}
+          {/* Target Attendance % */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>ENROLLMENT NUMBER (OPTIONAL)</Text>
+            <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>MINIMUM TARGET ATTENDANCE %</Text>
             <TextInput
-              style={styles.textInput}
-              placeholder="e.g. 04520802724"
-              placeholderTextColor={THEME.colors.textTertiary}
-              value={rollNumber}
-              onChangeText={setRollNumber}
+              style={[
+                styles.textInput,
+                { backgroundColor: colors.surfaceSubtle, color: colors.textPrimary, borderColor: colors.borderSubtle },
+              ]}
+              placeholder="75"
+              placeholderTextColor={colors.textTertiary}
+              value={targetPct}
+              onChangeText={setTargetPct}
               keyboardType="number-pad"
             />
           </View>
         </View>
 
-        {/* Action Button */}
+        {/* ─── PRIMARY CTA BUTTON ───────────────────────────────────── */}
         <TouchableOpacity
-          style={styles.finishButton}
+          style={[
+            styles.finishButton,
+            {
+              backgroundColor: colors.accent,
+              shadowColor: colors.accent,
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: isDark ? 0.35 : 0.2,
+              shadowRadius: 18,
+              elevation: 8,
+            },
+          ]}
           activeOpacity={0.85}
           onPress={handleFinish}
         >
-          <Text style={styles.finishButtonText}>Complete Setup & Enter App →</Text>
+          <Text style={[styles.finishButtonText, { color: '#FFFFFF' }]}>
+            Get Started with Attendly
+          </Text>
+          <ArrowRight size={16} color="#FFFFFF" />
         </TouchableOpacity>
       </ScrollView>
 
-      {/* College Search Modal */}
+      {/* ─── COLLEGE SEARCH MODAL ───────────────────────────────────── */}
       <Modal visible={isCollegeModalOpen} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.collegeModalBox}>
-            <Text style={styles.modalHeaderTitle}>Select Your IPU College</Text>
+        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+          <View style={[styles.collegeModalBox, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
+            <Text style={[styles.modalHeaderTitle, { color: colors.textPrimary }]}>Select Your College</Text>
 
-            <View style={styles.searchBar}>
-              <Search size={16} color={THEME.colors.textTertiary} />
+            <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              <Search size={16} color={colors.textTertiary} />
               <TextInput
-                style={styles.searchInput}
+                style={[styles.searchInput, { color: colors.textPrimary }]}
                 placeholder="Search college name or abbreviation..."
-                placeholderTextColor={THEME.colors.textTertiary}
+                placeholderTextColor={colors.textTertiary}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
             </View>
 
-            <ScrollView contentContainerStyle={{ paddingVertical: 8 }}>
+            <ScrollView contentContainerStyle={{ paddingVertical: 8 }} showsVerticalScrollIndicator={false}>
               {filteredColleges.map(college => {
                 const isSelected = selectedCollege.id === college.id;
                 return (
@@ -287,7 +364,8 @@ export const OnboardingScreen: React.FC = () => {
                     key={college.id}
                     style={[
                       styles.collegeRow,
-                      isSelected && styles.collegeRowSelected,
+                      { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+                      isSelected && { borderColor: colors.accent, backgroundColor: colors.surfaceElevated },
                     ]}
                     onPress={() => {
                       AppHaptics.selection();
@@ -297,25 +375,25 @@ export const OnboardingScreen: React.FC = () => {
                     }}
                   >
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.collegeShort, isSelected && { color: THEME.colors.cyan }]}>
+                      <Text style={[styles.collegeShort, { color: colors.textPrimary }, isSelected && { color: colors.accent }]}>
                         {college.shortName}
                       </Text>
-                      <Text style={styles.collegeFullName} numberOfLines={2}>
+                      <Text style={[styles.collegeFullName, { color: colors.textSecondary }]} numberOfLines={2}>
                         {college.name}
                       </Text>
-                      <Text style={styles.collegeCampus}>{college.campus}</Text>
+                      <Text style={[styles.collegeCampus, { color: colors.textTertiary }]}>{college.campus}</Text>
                     </View>
-                    {isSelected && <Check size={18} color={THEME.colors.cyan} />}
+                    {isSelected && <Check size={18} color={colors.accent} />}
                   </TouchableOpacity>
                 );
               })}
             </ScrollView>
 
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={[styles.modalCloseBtn, { backgroundColor: colors.surfaceElevated }]}
               onPress={() => setIsCollegeModalOpen(false)}
             >
-              <Text style={styles.modalCloseText}>Close</Text>
+              <Text style={[styles.modalCloseText, { color: colors.textPrimary }]}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -327,234 +405,209 @@ export const OnboardingScreen: React.FC = () => {
 const styles = StyleSheet.create({
   safeContainer: {
     flex: 1,
-    backgroundColor: THEME.colors.background,
   },
   scrollContent: {
-    padding: THEME.spacing.lg,
-    paddingBottom: 50,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 40,
   },
-  topBanner: {
-    marginBottom: THEME.spacing.lg,
-  },
-  ipuLogoBadge: {
-    flexDirection: 'row',
+  heroSection: {
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: THEME.colors.cyanSubtle,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: THEME.borderRadius.pill,
+    paddingVertical: 18,
+  },
+  logoContainer: {
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.45,
+    shadowRadius: 24,
+    elevation: 10,
+    marginBottom: 10,
+  },
+  heroLogo: {
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+  },
+  heroTitle: {
+    fontSize: 30,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: -1,
+  },
+  heroTagline: {
+    fontSize: 9.5,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: 1.8,
+    marginTop: 3,
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 17,
+    maxWidth: 320,
+  },
+  cardGroup: {
+    borderRadius: 20,
+    padding: 16,
     borderWidth: 1,
-    borderColor: THEME.colors.borderHighlight,
-    marginBottom: THEME.spacing.sm,
   },
-  ipuLogoText: {
-    color: THEME.colors.cyan,
-    fontSize: 10,
+  groupHeading: {
+    fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    letterSpacing: 1,
-  },
-  headlineTitle: {
-    fontSize: THEME.typography.sizes.title,
-    fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
-    letterSpacing: -0.5,
-  },
-  headlineSubtitle: {
-    fontSize: THEME.typography.sizes.sm,
-    color: THEME.colors.textSecondary,
-    marginTop: 4,
-    lineHeight: 20,
-  },
-  formContainer: {
-    gap: THEME.spacing.md,
+    letterSpacing: 1.2,
+    marginBottom: 12,
   },
   fieldGroup: {
-    gap: 6,
+    marginBottom: 12,
+    gap: 5,
   },
   fieldLabel: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textTertiary,
     letterSpacing: 0.8,
   },
   textInput: {
-    backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.lg,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    color: THEME.colors.textPrimary,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
     fontSize: THEME.typography.sizes.sm,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
   },
   selectorButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.lg,
-    padding: THEME.spacing.md,
+    gap: 10,
+    borderRadius: 12,
+    padding: 12,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
+  },
+  collegeIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   selectorPrimaryText: {
-    fontSize: THEME.typography.sizes.md,
+    fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textPrimary,
   },
   selectorSecondaryText: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textTertiary,
-    marginTop: 2,
-  },
-  pillRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingVertical: 4,
-  },
-  pillItem: {
-    backgroundColor: THEME.colors.surface,
-    borderRadius: THEME.borderRadius.pill,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-  },
-  pillItemActive: {
-    backgroundColor: THEME.colors.cyanSubtle,
-    borderColor: THEME.colors.cyan,
-  },
-  pillItemText: {
-    color: THEME.colors.textSecondary,
-    fontSize: THEME.typography.sizes.xs,
-    fontWeight: THEME.typography.weights.medium,
-  },
-  pillItemTextActive: {
-    color: THEME.colors.cyan,
-    fontWeight: THEME.typography.weights.bold,
+    fontSize: 10,
+    marginTop: 1,
   },
   twoColRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 10,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 2,
+  },
+  pillItem: {
+    borderRadius: THEME.borderRadius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderWidth: 1,
+  },
+  pillItemText: {
+    fontSize: 11,
+    fontWeight: THEME.typography.weights.medium,
   },
   semGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
   },
   semButton: {
-    width: 38,
+    flex: 1,
+    minWidth: 36,
     height: 38,
-    borderRadius: THEME.borderRadius.md,
-    backgroundColor: THEME.colors.surface,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: THEME.colors.border,
-  },
-  semButtonActive: {
-    backgroundColor: THEME.colors.cyan,
-    borderColor: THEME.colors.cyan,
   },
   semButtonText: {
-    color: THEME.colors.textSecondary,
     fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.bold,
   },
-  semButtonTextActive: {
-    color: THEME.colors.background,
-  },
   finishButton: {
-    backgroundColor: THEME.colors.cyan,
-    borderRadius: THEME.borderRadius.xl,
-    paddingVertical: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: THEME.spacing.xl,
-    ...THEME.shadows.glowCyan,
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 16,
+    paddingVertical: 15,
+    marginTop: 20,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 4,
   },
   finishButtonText: {
-    color: THEME.colors.background,
-    fontSize: THEME.typography.sizes.md,
+    fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.heavy,
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     justifyContent: 'flex-end',
   },
   collegeModalBox: {
-    backgroundColor: THEME.colors.background,
     borderTopLeftRadius: THEME.borderRadius.xxl,
     borderTopRightRadius: THEME.borderRadius.xxl,
     height: '80%',
     padding: THEME.spacing.lg,
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
   },
   modalHeaderTitle: {
     fontSize: THEME.typography.sizes.lg,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
     marginBottom: THEME.spacing.md,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.lg,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
     marginBottom: THEME.spacing.md,
   },
   searchInput: {
     flex: 1,
-    color: THEME.colors.textPrimary,
     fontSize: THEME.typography.sizes.sm,
   },
   collegeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: THEME.spacing.md,
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.lg,
     borderWidth: 1,
-    borderColor: THEME.colors.border,
     marginBottom: THEME.spacing.sm,
-  },
-  collegeRowSelected: {
-    borderColor: THEME.colors.cyan,
-    backgroundColor: THEME.colors.surfaceElevated,
   },
   collegeShort: {
     fontSize: THEME.typography.sizes.md,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
   },
   collegeFullName: {
     fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textSecondary,
     marginTop: 2,
   },
   collegeCampus: {
     fontSize: 9,
-    color: THEME.colors.textTertiary,
     marginTop: 2,
   },
   modalCloseBtn: {
-    backgroundColor: THEME.colors.surfaceElevated,
     borderRadius: THEME.borderRadius.lg,
     paddingVertical: 12,
     alignItems: 'center',
     marginTop: 8,
   },
   modalCloseText: {
-    color: THEME.colors.textPrimary,
     fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.bold,
   },

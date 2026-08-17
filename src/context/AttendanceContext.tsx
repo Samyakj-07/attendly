@@ -15,8 +15,15 @@ import {
   attendanceBuffer,
   analyzeTodaySkip,
   calculateSemesterHealth,
+  timeToMinutes,
 } from '../utils/ipuEngine';
+import {
+  SAMPLE_IPU_SUBJECTS,
+  SAMPLE_IPU_TIMETABLE,
+  SAMPLE_IPU_EXAMS,
+} from '../constants/sampleData';
 import { AppHaptics } from '../utils/haptics';
+import { Analytics } from '../utils/analytics';
 
 interface AttendanceContextType {
   profile: StudentProfile;
@@ -32,6 +39,7 @@ interface AttendanceContextType {
   totalAttended: number;
   totalClasses: number;
   todayDay: 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT';
+  isSunday: boolean;
   todaySlots: TimetableSlot[];
   todaySkipReport: SkipRecommendationReport;
   semesterHealth: SemesterHealthReport;
@@ -43,15 +51,21 @@ interface AttendanceContextType {
     status: AttendanceStatus,
     slotInfo?: { time?: string; room?: string; note?: string; date?: string }
   ) => Promise<void>;
+  markAllSlotsAttendance: (
+    slots: TimetableSlot[],
+    targetStatus?: AttendanceStatus,
+    dateStr?: string
+  ) => Promise<void>;
   undoLastAction: () => Promise<void>;
   editAttendanceRecord: (recordId: string, newStatus: AttendanceStatus, note?: string) => Promise<void>;
   deleteAttendanceRecord: (recordId: string) => Promise<void>;
   
-  addSubject: (subject: Partial<Subject> & { name: string; code: string }) => Promise<void>;
+  addSubject: (subject: Partial<Subject> & { name: string; code: string }) => Promise<Subject>;
   updateSubject: (subject: Subject) => Promise<void>;
   deleteSubject: (subjectId: string) => Promise<void>;
   
   addTimetableSlot: (slot: Omit<TimetableSlot, 'id'>) => Promise<void>;
+  addMultipleTimetableSlots: (slots: Omit<TimetableSlot, 'id'>[]) => Promise<void>;
   batchAddTimetableSlots: (slots: Omit<TimetableSlot, 'id'>[], newSubjects?: Partial<Subject>[]) => Promise<void>;
   updateTimetableSlot: (slot: TimetableSlot) => Promise<void>;
   deleteTimetableSlot: (slotId: string) => Promise<void>;
@@ -123,10 +137,13 @@ export const AttendanceProvider: React.FC<{ children: ReactNode }> = ({ children
     init();
   }, []);
 
-  // Today's day of week
+  // Real day index: 0 = Sun, 1 = Mon, 2 = Tue, 3 = Wed, 4 = Thu, 5 = Fri, 6 = Sat
+  const isSunday = new Date().getDay() === 0;
+
+  // Today's day of week code
   const todayDay = useMemo<'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT'>(() => {
     const days: Array<'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT'> = [
-      'MON', // Sunday defaults to Monday for planning preview
+      'MON', // Sunday defaults to Monday for upcoming week preview
       'MON',
       'TUE',
       'WED',
@@ -138,10 +155,16 @@ export const AttendanceProvider: React.FC<{ children: ReactNode }> = ({ children
     return days[dayIdx] || 'MON';
   }, []);
 
-  // Filter timetable slots for today
+  // Filter timetable slots for today in chronological order.
+  // On Sunday (weekend), there are NO classes scheduled today.
   const todaySlots = useMemo(() => {
-    return timetable.filter(slot => slot.day === todayDay);
-  }, [timetable, todayDay]);
+    if (isSunday) {
+      return [];
+    }
+    return timetable
+      .filter(slot => slot.day === todayDay)
+      .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+  }, [timetable, todayDay, isSunday]);
 
   // Overall attendance statistics
   const { overallPercentage, overallBuffer, totalAttended, totalClasses } = useMemo(() => {
@@ -239,6 +262,158 @@ export const AttendanceProvider: React.FC<{ children: ReactNode }> = ({ children
 
     setSubjects(updatedSubjects);
     setRecords(updatedRecords);
+
+    Analytics.track('attendance_marked', {
+      status,
+      subject_id: sub.id,
+      subject_code: sub.code,
+      subject_type: sub.type,
+      is_lab: sub.isLab2x || false,
+      has_slot_info: !!slotInfo,
+    });
+
+    await Promise.all([
+      AppStorage.saveSubjects(updatedSubjects),
+      AppStorage.saveRecords(updatedRecords),
+    ]);
+  };
+
+  // Atomically mark attendance for multiple timetable slots in 1 tap without race conditions or duplicates
+  const markAllSlotsAttendance = async (
+    slots: TimetableSlot[],
+    targetStatus: AttendanceStatus = 'PRESENT',
+    dateStr?: string
+  ) => {
+    if (!slots || slots.length === 0) return;
+    const targetDate = dateStr || new Date().toISOString().split('T')[0];
+
+    Analytics.track('all_slots_marked', {
+      slot_count: slots.length,
+      status: targetStatus,
+      date: targetDate,
+    });
+
+    let updatedSubjects = [...subjects];
+    let updatedRecords = [...records];
+    let anyChanges = false;
+
+    for (const slot of slots) {
+      const subIndex = updatedSubjects.findIndex(s => s.id === slot.subjectId);
+      if (subIndex === -1) continue;
+      const sub = updatedSubjects[subIndex];
+      const unit = sub.isLab2x ? 2 : 1;
+
+      // Check if already marked for this slot on this date
+      const existingRecIndex = updatedRecords.findIndex(
+        r =>
+          r.subjectId === slot.subjectId &&
+          r.date === targetDate &&
+          (r.slotTime?.includes(slot.startTime) || r.note?.includes(slot.day))
+      );
+
+      if (existingRecIndex !== -1) {
+        const existingRec = updatedRecords[existingRecIndex];
+        if (existingRec.status === targetStatus) {
+          // Already marked with same status, skip to prevent double counting
+          continue;
+        }
+        anyChanges = true;
+        let attendedDelta = 0;
+        let totalDelta = 0;
+        let cancelledDelta = 0;
+        let odDelta = 0;
+
+        if (existingRec.status === 'PRESENT') {
+          attendedDelta -= unit;
+          totalDelta -= unit;
+        } else if (existingRec.status === 'ABSENT') {
+          totalDelta -= unit;
+        } else if (existingRec.status === 'CANCELLED') {
+          cancelledDelta -= unit;
+        } else if (existingRec.status === 'OD') {
+          attendedDelta -= unit;
+          totalDelta -= unit;
+          odDelta -= unit;
+        }
+
+        if (targetStatus === 'PRESENT') {
+          attendedDelta += unit;
+          totalDelta += unit;
+        } else if (targetStatus === 'ABSENT') {
+          totalDelta += unit;
+        } else if (targetStatus === 'CANCELLED') {
+          cancelledDelta += unit;
+        } else if (targetStatus === 'OD') {
+          attendedDelta += unit;
+          totalDelta += unit;
+          odDelta += unit;
+        }
+
+        updatedSubjects[subIndex] = {
+          ...sub,
+          attended: Math.max(0, sub.attended + attendedDelta),
+          total: Math.max(0, sub.total + totalDelta),
+          cancelled: Math.max(0, (sub.cancelled || 0) + cancelledDelta),
+          od: Math.max(0, (sub.od || 0) + odDelta),
+        };
+
+        updatedRecords[existingRecIndex] = {
+          ...existingRec,
+          status: targetStatus,
+          timestamp: Date.now(),
+        };
+      } else {
+        anyChanges = true;
+        let attendedDelta = 0;
+        let totalDelta = 0;
+        let cancelledDelta = 0;
+        let odDelta = 0;
+
+        if (targetStatus === 'PRESENT') {
+          attendedDelta = unit;
+          totalDelta = unit;
+        } else if (targetStatus === 'ABSENT') {
+          totalDelta = unit;
+        } else if (targetStatus === 'CANCELLED') {
+          cancelledDelta += unit;
+        } else if (targetStatus === 'OD') {
+          attendedDelta += unit;
+          totalDelta += unit;
+          odDelta += unit;
+        }
+
+        updatedSubjects[subIndex] = {
+          ...sub,
+          attended: Math.max(0, sub.attended + attendedDelta),
+          total: Math.max(0, sub.total + totalDelta),
+          cancelled: Math.max(0, (sub.cancelled || 0) + cancelledDelta),
+          od: Math.max(0, (sub.od || 0) + odDelta),
+        };
+
+        const newRecord: AttendanceRecord = {
+          id: `rec_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          date: targetDate,
+          timestamp: Date.now(),
+          subjectId: sub.id,
+          subjectName: sub.name,
+          subjectCode: sub.code,
+          status: targetStatus,
+          slotTime: `${slot.startTime} - ${slot.endTime}`,
+          room: slot.room,
+          note: `All Present: ${slot.day}`,
+        };
+        updatedRecords.unshift(newRecord);
+      }
+    }
+
+    if (!anyChanges) {
+      AppHaptics.light();
+      return;
+    }
+
+    setSubjects(updatedSubjects);
+    setRecords(updatedRecords);
+    AppHaptics.success();
 
     await Promise.all([
       AppStorage.saveSubjects(updatedSubjects),
@@ -385,7 +560,7 @@ export const AttendanceProvider: React.FC<{ children: ReactNode }> = ({ children
   // Subject management
   const addSubject = async (
     data: Partial<Subject> & { name: string; code: string }
-  ) => {
+  ): Promise<Subject> => {
     const colors = ['#38BDF8', '#10B981', '#F59E0B', '#A855F7', '#EC4899', '#6366F1'];
     const randomColor = colors[subjects.length % colors.length];
 
@@ -410,33 +585,98 @@ export const AttendanceProvider: React.FC<{ children: ReactNode }> = ({ children
     const updated = [...subjects, newSub];
     setSubjects(updated);
     await AppStorage.saveSubjects(updated);
+    Analytics.track('course_added', {
+      subject_code: newSub.code,
+      subject_type: newSub.type,
+      credits: newSub.credits,
+    });
     AppHaptics.success();
+    return newSub;
   };
 
   const updateSubject = async (updatedSubject: Subject) => {
     const updated = subjects.map(s => (s.id === updatedSubject.id ? updatedSubject : s));
+    
+    // Cascade room, faculty, name, and code changes to all timetable slots for this subject
+    const updatedTimetable = timetable.map(t => {
+      if (t.subjectId === updatedSubject.id) {
+        return {
+          ...t,
+          subjectName: updatedSubject.name,
+          subjectCode: updatedSubject.code,
+          type: updatedSubject.type,
+          room: updatedSubject.room !== undefined ? updatedSubject.room : t.room,
+          faculty: updatedSubject.faculty !== undefined ? updatedSubject.faculty : t.faculty,
+          isLab2x: updatedSubject.isLab2x,
+        };
+      }
+      return t;
+    });
+
+    // Cascade name/code changes to attendance records
+    const updatedRecords = records.map(r => {
+      if (r.subjectId === updatedSubject.id) {
+        return {
+          ...r,
+          subjectName: updatedSubject.name,
+          subjectCode: updatedSubject.code,
+          room: updatedSubject.room !== undefined ? updatedSubject.room : r.room,
+        };
+      }
+      return r;
+    });
+
     setSubjects(updated);
-    await AppStorage.saveSubjects(updated);
+    setTimetable(updatedTimetable);
+    setRecords(updatedRecords);
+
+    await Promise.all([
+      AppStorage.saveSubjects(updated),
+      AppStorage.saveTimetable(updatedTimetable),
+      AppStorage.saveRecords(updatedRecords),
+    ]);
   };
 
   const deleteSubject = async (subjectId: string) => {
     const updated = subjects.filter(s => s.id !== subjectId);
     const updatedTimetable = timetable.filter(t => t.subjectId !== subjectId);
+    const updatedRecords = records.filter(r => r.subjectId !== subjectId);
     setSubjects(updated);
     setTimetable(updatedTimetable);
+    setRecords(updatedRecords);
+    Analytics.track('course_deleted');
     await Promise.all([
       AppStorage.saveSubjects(updated),
       AppStorage.saveTimetable(updatedTimetable),
+      AppStorage.saveRecords(updatedRecords),
     ]);
+    AppHaptics.warning();
   };
 
   // Timetable slot management
   const addTimetableSlot = async (slotData: Omit<TimetableSlot, 'id'>) => {
     const newSlot: TimetableSlot = {
       ...slotData,
-      id: `slot_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      id: `slot_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
     };
     const updated = [...timetable, newSlot];
+    setTimetable(updated);
+    await AppStorage.saveTimetable(updated);
+    Analytics.track('timetable_slot_added', {
+      day: slotData.day,
+      type: slotData.type,
+      start_time: slotData.startTime,
+    });
+    AppHaptics.success();
+  };
+
+  const addMultipleTimetableSlots = async (slotsData: Omit<TimetableSlot, 'id'>[]) => {
+    if (!slotsData || slotsData.length === 0) return;
+    const newSlots: TimetableSlot[] = slotsData.map((s, idx) => ({
+      ...s,
+      id: `slot_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 6)}`,
+    }));
+    const updated = [...timetable, ...newSlots];
     setTimetable(updated);
     await AppStorage.saveTimetable(updated);
     AppHaptics.success();
@@ -583,11 +823,13 @@ export const AttendanceProvider: React.FC<{ children: ReactNode }> = ({ children
         totalAttended,
         totalClasses,
         todayDay,
+        isSunday,
         todaySlots,
         todaySkipReport,
         semesterHealth,
         updateProfile,
         markAttendance,
+        markAllSlotsAttendance,
         undoLastAction,
         editAttendanceRecord,
         deleteAttendanceRecord,
@@ -595,6 +837,7 @@ export const AttendanceProvider: React.FC<{ children: ReactNode }> = ({ children
         updateSubject,
         deleteSubject,
         addTimetableSlot,
+        addMultipleTimetableSlots,
         batchAddTimetableSlots,
         updateTimetableSlot,
         deleteTimetableSlot,

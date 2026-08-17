@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Text, TextStyle, StyleSheet } from 'react-native';
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 interface AnimatedNumberProps {
   value: number;
@@ -15,6 +16,7 @@ export const AnimatedNumber: React.FC<AnimatedNumberProps> = ({
   suffix = '',
   style,
 }) => {
+  const { colors } = useTheme();
   const [displayValue, setDisplayValue] = useState(value);
   const previousValueRef = useRef(value);
 
@@ -46,7 +48,7 @@ export const AnimatedNumber: React.FC<AnimatedNumberProps> = ({
   }, [value]);
 
   return (
-    <Text style={[styles.defaultStyle, style]}>
+    <Text style={[styles.defaultStyle, { color: colors.textPrimary }, style]}>
       {displayValue.toFixed(decimals)}
       {suffix}
     </Text>
@@ -55,7 +57,6 @@ export const AnimatedNumber: React.FC<AnimatedNumberProps> = ({
 
 const styles = StyleSheet.create({
   defaultStyle: {
-    color: THEME.colors.textPrimary,
     fontFamily: THEME.typography.fontFamily,
     fontWeight: THEME.typography.weights.heavy,
   },

@@ -1,16 +1,22 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
+import { BRAND } from '../constants/brand';
 import { useAttendance } from '../context/AttendanceContext';
 import { Sparkles } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 
+const APP_LOGO = require('../../assets/icon.png');
+
 interface HeaderProps {
-  onOpenAskIPU?: () => void;
+  onOpenAskAttendly?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onOpenAskIPU }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenAskAttendly }) => {
+  const { colors, isDark } = useTheme();
   const { profile } = useAttendance();
+  const handleOpenAI = onOpenAskAttendly;
 
   const getGreeting = () => {
     const hours = new Date().getHours();
@@ -21,40 +27,75 @@ export const Header: React.FC<HeaderProps> = ({ onOpenAskIPU }) => {
 
   const getFormattedDate = () => {
     const d = new Date();
-    const day = d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
-    const month = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }).toUpperCase();
+    const day = d.toLocaleDateString('en-US', { weekday: 'long' });
+    const month = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     return `${day} · ${month}`;
   };
 
   const studentFirstName = profile.name ? profile.name.split(' ')[0] : 'Student';
-  const collegeMeta = `${profile.collegeShort || 'IPU'} · ${profile.programme || 'B.Tech'} ${profile.branch || 'Course'} · Semester ${profile.semester || 1}`;
+  const collegeName = profile.collegeShort || 'GGSIPU';
+  const branchSem = `${profile.programme || 'B.Tech'} ${profile.branch ? `· ${profile.branch}` : ''} · Sem ${profile.semester || 1}`;
 
   return (
     <View style={styles.container}>
+      {/* Top Glass Navigation Bar */}
       <View style={styles.topRow}>
-        <Text style={styles.eyebrow}>{getFormattedDate()}</Text>
+        <View style={styles.brandRow}>
+          <View style={[styles.logoContainer, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
+            <Image source={APP_LOGO} style={styles.brandLogo} />
+          </View>
+          <View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+              <Text style={[styles.wordmark, { color: colors.textPrimary }]}>{BRAND.displayName}</Text>
+              <View style={[styles.livePulseDot, { backgroundColor: colors.emerald }]} />
+            </View>
+            <Text style={[styles.dateText, { color: colors.textTertiary }]}>{getFormattedDate()}</Text>
+          </View>
+        </View>
 
-        {onOpenAskIPU && (
+        {handleOpenAI && (
           <TouchableOpacity
-            style={styles.askButton}
+            style={[
+              styles.askButton,
+              {
+                backgroundColor: colors.accentSubtle,
+                borderColor: colors.borderHighlight,
+                shadowColor: colors.accent,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: isDark ? 0.25 : 0.1,
+                shadowRadius: 8,
+              },
+            ]}
             activeOpacity={0.7}
             onPress={() => {
               AppHaptics.light();
-              onOpenAskIPU();
+              handleOpenAI();
             }}
           >
-            <Sparkles size={11} color={THEME.colors.textSecondary} />
-            <Text style={styles.askButtonText}>Ask IPU</Text>
+            <Sparkles size={12} color={colors.accent} />
+            <Text style={[styles.askButtonText, { color: colors.accent }]}>Ask Attendly</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      <View style={styles.headlineBlock}>
-        <Text style={styles.greetingLine}>{getGreeting()},</Text>
-        <Text style={styles.nameLine}>{studentFirstName}.</Text>
-      </View>
+      {/* Greeting & Academic Capsule */}
+      <View style={styles.greetingSection}>
+        <Text style={[styles.greetingSubtitle, { color: colors.textTertiary }]}>
+          {getGreeting().toUpperCase()}
+        </Text>
+        <Text style={[styles.greetingName, { color: colors.textPrimary }]}>
+          {studentFirstName}.
+        </Text>
 
-      <Text style={styles.metaLine}>{collegeMeta}</Text>
+        <View style={[styles.academicPill, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <View style={[styles.academicTag, { backgroundColor: colors.accentSubtle }]}>
+            <Text style={[styles.academicTagText, { color: colors.accent }]}>{collegeName}</Text>
+          </View>
+          <Text style={[styles.academicText, { color: colors.textSecondary }]} numberOfLines={1}>
+            {branchSem}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 };
@@ -63,60 +104,101 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: THEME.spacing.xl,
     paddingTop: THEME.spacing.xs,
-    paddingBottom: THEME.spacing.md,
+    paddingBottom: THEME.spacing.xs,
   },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: THEME.spacing.xs,
+    marginBottom: THEME.spacing.md,
   },
-  eyebrow: {
-    fontSize: THEME.typography.sizes.xxs,
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  logoContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: THEME.borderRadius.sm,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 3,
+  },
+  brandLogo: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+  },
+  wordmark: {
+    fontSize: 14.5,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textTertiary,
-    letterSpacing: THEME.typography.letterSpacing.widest,
-    textTransform: 'uppercase',
+    letterSpacing: -0.4,
+  },
+  livePulseDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  dateText: {
+    fontSize: 10,
+    fontWeight: THEME.typography.weights.medium,
+    marginTop: 1,
   },
   askButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: THEME.colors.surfaceSubtle,
-    paddingHorizontal: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: THEME.borderRadius.pill,
+    borderWidth: 1,
+  },
+  askButtonText: {
+    fontSize: 11,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: 0.2,
+  },
+  greetingSection: {
+    marginBottom: THEME.spacing.xs,
+  },
+  greetingSubtitle: {
+    fontSize: 9.5,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: 1.5,
+  },
+  greetingName: {
+    fontSize: 32,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: -1.2,
+    lineHeight: 38,
+    marginTop: 1,
+  },
+  academicPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 7,
     paddingVertical: 4,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
+    marginTop: 8,
   },
-  askButtonText: {
-    color: THEME.colors.textSecondary,
-    fontSize: 10,
-    fontWeight: THEME.typography.weights.bold,
+  academicTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: THEME.borderRadius.pill,
+  },
+  academicTagText: {
+    fontSize: 9,
+    fontWeight: THEME.typography.weights.heavy,
     letterSpacing: 0.3,
   },
-  headlineBlock: {
-    marginTop: 2,
-  },
-  greetingLine: {
-    fontSize: THEME.typography.sizes.title,
-    fontWeight: THEME.typography.weights.regular,
-    color: THEME.colors.textSecondary,
-    letterSpacing: THEME.typography.letterSpacing.tight,
-    lineHeight: 32,
-  },
-  nameLine: {
-    fontSize: THEME.typography.sizes.headline,
-    fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
-    letterSpacing: THEME.typography.letterSpacing.tighter,
-    lineHeight: 38,
-  },
-  metaLine: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textTertiary,
+  academicText: {
+    fontSize: 10.5,
     fontWeight: THEME.typography.weights.medium,
-    marginTop: 6,
-    letterSpacing: 0.2,
+    paddingRight: 4,
   },
 });

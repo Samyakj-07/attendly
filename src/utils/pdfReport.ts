@@ -60,7 +60,7 @@ export async function generateIPUAttendancePDF(
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>IPU Official Attendance Statement</title>
+        <title>Attendly — Official Attendance Statement</title>
         <style>
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -166,8 +166,8 @@ export async function generateIPUAttendancePDF(
       <body>
         <div class="header-box">
           <div>
-            <div class="title">GURU GOBIND SINGH INDRAPRASTHA UNIVERSITY</div>
-            <div class="subtitle">${profile.college} (${profile.collegeShort}) • Academic Attendance Report</div>
+            <div class="title">${profile.college || 'GGSIPU'}</div>
+            <div class="subtitle">${profile.collegeShort || ''} • Attendly Attendance Statement</div>
           </div>
           <div style="text-align: right;">
             <div style="font-size: 11px; color: #64748b;">Generated Date</div>
@@ -197,7 +197,7 @@ export async function generateIPUAttendancePDF(
             <div class="profile-value">${profile.academicSession}</div>
           </div>
           <div class="profile-item">
-            <div class="profile-label">IPU Mandatory Target</div>
+            <div class="profile-label">Minimum Target</div>
             <div class="profile-value" style="color: #0284c7;">${profile.targetAttendance || 75}% Minimum</div>
           </div>
         </div>
@@ -244,8 +244,8 @@ export async function generateIPUAttendancePDF(
         </div>
 
         <div class="footer">
-          <div>IPU Attendance OS • Sovereign Academic Companion for GGSIPU</div>
-          <div>Page 1 of 1 • System Generated Record</div>
+          <div>Attendly • Official Attendance Statement • ${profile.college || 'GGSIPU'}</div>
+          <div>Page 1 of 1 • System Generated Ledger</div>
         </div>
       </body>
     </html>

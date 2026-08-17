@@ -1,6 +1,10 @@
+.git/
 node_modules/
 .expo/
 dist/
+dist-test/
+.tempmediaStorage/
+.user_uploaded/
 npm-debug.*
 *.jks
 *.p8
@@ -10,6 +14,3 @@ npm-debug.*
 *.orig.*
 web-build/
 .DS_Store
-android/
-ios/
-

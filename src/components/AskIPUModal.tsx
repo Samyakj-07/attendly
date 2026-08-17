@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,13 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
+
+const APP_LOGO = require('../../assets/icon.png');
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
+import { BRAND } from '../constants/brand';
 import { useAttendance } from '../context/AttendanceContext';
 import {
   attendancePercentage,
@@ -19,8 +24,9 @@ import {
 } from '../utils/ipuEngine';
 import { X, Sparkles, Send, Bot, User } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
+import { Analytics } from '../utils/analytics';
 
-interface AskIPUModalProps {
+interface AskAttendlyModalProps {
   visible: boolean;
   onClose: () => void;
 }
@@ -32,7 +38,8 @@ interface ChatMessage {
   timestamp: string;
 }
 
-export const AskIPUModal: React.FC<AskIPUModalProps> = ({ visible, onClose }) => {
+export const AskAttendlyModal: React.FC<AskAttendlyModalProps> = ({ visible, onClose }) => {
+  const { colors, isDark } = useTheme();
   const { subjects, overallPercentage, overallBuffer, todaySkipReport, profile } =
     useAttendance();
   const [inputText, setInputText] = useState('');
@@ -40,12 +47,20 @@ export const AskIPUModal: React.FC<AskIPUModalProps> = ({ visible, onClose }) =>
     {
       id: 'welcome',
       sender: 'ai',
-      text: `Hello ${profile.name || 'Scholar'}! I am your IPU Academic Assistant. Ask me anything about your ${profile.collegeShort || 'GGSIPU'} attendance, safe bunks, or detention risk.`,
+      text: `Hello ${profile.name || 'there'}! I'm ${BRAND.name}. Ask me anything about your attendance, safe skips, recovery plans, or risk levels.`,
       timestamp: 'Now',
     },
   ]);
 
   const target = profile.targetAttendance || 75;
+
+  useEffect(() => {
+    if (visible) {
+      Analytics.track('feature_used', {
+        feature: 'ask_attendly_ai',
+      });
+    }
+  }, [visible]);
 
   const handleQuery = (query: string) => {
     if (!query.trim()) return;
@@ -64,28 +79,28 @@ export const AskIPUModal: React.FC<AskIPUModalProps> = ({ visible, onClose }) =>
     if (q.includes('skip') || q.includes('bunk') || q.includes('tomorrow') || q.includes('today')) {
       reply = todaySkipReport.summaryAdvice;
       if (todaySkipReport.safestSubject) {
-        reply += `\n\n💡 Tip: Your safest subject is ${todaySkipReport.safestSubject.name} with a buffer of +${attendanceBuffer(todaySkipReport.safestSubject.attended, todaySkipReport.safestSubject.total, target)} classes.`;
+        reply += `\n\n💡 Tip: Your safest course is ${todaySkipReport.safestSubject.name} with a buffer of +${attendanceBuffer(todaySkipReport.safestSubject.attended, todaySkipReport.safestSubject.total, target)} classes.`;
       }
     } else if (q.includes('risk') || q.includes('danger') || q.includes('critical') || q.includes('detain')) {
       const risky = subjects.filter(s => (s.attended / (s.total || 1)) * 100 < (s.targetRequirement || target));
       if (risky.length === 0) {
-        reply = `Great news! None of your subjects are in the detention danger zone. All subjects are above ${target}%.`;
+        reply = `Great news! You're on track across all courses. Everything is above ${target}%.`;
       } else {
-        reply = `You have ${risky.length} critical subject(s) below ${target}%:\n` +
+        reply = `You have ${risky.length} course(s) that need attention below ${target}%:\n` +
           risky
             .map(
               s =>
-                `• ${s.name} (${attendancePercentage(s.attended, s.total)}%): Short by ${Math.abs(attendanceBuffer(s.attended, s.total, target))} lectures.`
+                `• ${s.name} (${attendancePercentage(s.attended, s.total)}%): Short by ${Math.abs(attendanceBuffer(s.attended, s.total, target))} classes.`
             )
             .join('\n');
       }
     } else if (q.includes('mark') || q.includes('internal')) {
       const marks = predictInternalMarks(overallPercentage);
-      reply = `Based on your overall attendance of ${overallPercentage.toFixed(1)}%, your projected IPU Internal Attendance Marks score is ${marks.marks} / 5.\n\n${marks.nextMilestoneText}`;
+      reply = `Based on your overall attendance of ${overallPercentage.toFixed(1)}%, your projected internal attendance score is ${marks.marks} / 5.\n\n${marks.nextMilestoneText}`;
     } else if (q.includes('budget') || q.includes('buffer') || q.includes('total')) {
       reply = overallBuffer >= 0
-        ? `Your overall college attendance is ${overallPercentage.toFixed(1)}% with an aggregate buffer of +${overallBuffer} safe bunks across your semester courses.`
-        : `Your overall attendance is ${overallPercentage.toFixed(1)}%. You have a deficit of ${Math.abs(overallBuffer)} classes to reach ${target}%.`;
+        ? `Your overall attendance is ${overallPercentage.toFixed(1)}% with an aggregate buffer of +${overallBuffer} safe classes across your semester.`
+        : `Your overall attendance is ${overallPercentage.toFixed(1)}%. You need ${Math.abs(overallBuffer)} more classes to get back above ${target}%.`;
     } else {
       reply = `You are currently at ${overallPercentage.toFixed(1)}% overall attendance at ${profile.collegeShort || 'GGSIPU'}. Overall buffer is ${overallBuffer >= 0 ? `+${overallBuffer}` : overallBuffer} classes.`;
     }
@@ -104,40 +119,43 @@ export const AskIPUModal: React.FC<AskIPUModalProps> = ({ visible, onClose }) =>
   const samplePrompts = [
     'Can I skip today?',
     'Which subject is most risky?',
-    'What is my internal marks score?',
-    'What is my safe bunk budget?',
+    'What is my internal score?',
+    'How many classes can I skip?',
   ];
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.modalOverlay}
+        style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}
       >
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
           {/* Header */}
-          <View style={styles.headerRow}>
+          <View style={[styles.headerRow, { borderBottomColor: colors.borderSubtle }]}>
             <View style={styles.headerLeft}>
-              <View style={styles.badge}>
-                <Sparkles size={11} color={THEME.colors.cyan} />
-                <Text style={styles.badgeText}>ASK IPU</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                <Image source={APP_LOGO} style={{ width: 16, height: 16, borderRadius: 4 }} />
+                <View style={[styles.badge, { backgroundColor: colors.indigoSubtle }]}>
+                  <Sparkles size={11} color={colors.indigo} />
+                  <Text style={[styles.badgeText, { color: colors.indigo }]}>ASK ATTENDLY</Text>
+                </View>
               </View>
-              <Text style={styles.titleText}>Academic Intelligence</Text>
+              <Text style={[styles.titleText, { color: colors.textPrimary }]}>Attendance Intelligence</Text>
             </View>
 
             <TouchableOpacity
-              style={styles.closeBtn}
+              style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
               onPress={() => {
                 AppHaptics.light();
                 onClose();
               }}
             >
-              <X size={18} color={THEME.colors.textSecondary} />
+              <X size={18} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
-          {/* Quick Prompt Chips (Fixed container height so they don't stretch) */}
-          <View style={styles.promptsWrapper}>
+          {/* Quick Prompt Chips */}
+          <View style={[styles.promptsWrapper, { borderBottomColor: colors.borderSubtle }]}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -146,11 +164,17 @@ export const AskIPUModal: React.FC<AskIPUModalProps> = ({ visible, onClose }) =>
               {samplePrompts.map((prompt, idx) => (
                 <TouchableOpacity
                   key={`prompt_${idx}`}
-                  style={styles.promptChip}
+                  style={[
+                    styles.promptChip,
+                    {
+                      backgroundColor: colors.surface,
+                      borderColor: colors.borderSubtle,
+                    },
+                  ]}
                   activeOpacity={0.75}
                   onPress={() => handleQuery(prompt)}
                 >
-                  <Text style={styles.promptChipText}>{prompt}</Text>
+                  <Text style={[styles.promptChipText, { color: colors.indigo }]}>{prompt}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -173,44 +197,48 @@ export const AskIPUModal: React.FC<AskIPUModalProps> = ({ visible, onClose }) =>
                 <View
                   style={[
                     styles.avatar,
-                    msg.sender === 'user' ? styles.userAvatar : styles.aiAvatar,
+                    msg.sender === 'user'
+                      ? [styles.userAvatar, { backgroundColor: colors.surfaceElevated }]
+                      : [styles.aiAvatar, { backgroundColor: colors.indigoSubtle }],
                   ]}
                 >
                   {msg.sender === 'user' ? (
-                    <User size={12} color={THEME.colors.textPrimary} />
+                    <User size={12} color={colors.textPrimary} />
                   ) : (
-                    <Bot size={12} color={THEME.colors.cyan} />
+                    <Bot size={12} color={colors.indigo} />
                   )}
                 </View>
 
                 <View
                   style={[
                     styles.msgBubble,
-                    msg.sender === 'user' ? styles.userBubble : styles.aiBubble,
+                    msg.sender === 'user'
+                      ? [styles.userBubble, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]
+                      : [styles.aiBubble, { backgroundColor: colors.surface, borderColor: colors.borderHighlight }],
                   ]}
                 >
-                  <Text style={styles.msgText}>{msg.text}</Text>
+                  <Text style={[styles.msgText, { color: colors.textPrimary }]}>{msg.text}</Text>
                 </View>
               </View>
             ))}
           </ScrollView>
 
           {/* Input Bar */}
-          <View style={styles.inputBar}>
+          <View style={[styles.inputBar, { borderTopColor: colors.borderSubtle, backgroundColor: colors.background }]}>
             <TextInput
-              style={styles.textInput}
-              placeholder="Ask about your attendance, subjects..."
-              placeholderTextColor={THEME.colors.textTertiary}
+              style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
+              placeholder="Ask Attendly anything..."
+              placeholderTextColor={colors.textTertiary}
               value={inputText}
               onChangeText={setInputText}
               onSubmitEditing={() => handleQuery(inputText)}
             />
             <TouchableOpacity
-              style={styles.sendBtn}
+              style={[styles.sendBtn, { backgroundColor: colors.indigo }]}
               activeOpacity={0.8}
               onPress={() => handleQuery(inputText)}
             >
-              <Send size={15} color={THEME.colors.background} />
+              <Send size={15} color={colors.textInverse} />
             </TouchableOpacity>
           </View>
         </View>
@@ -219,19 +247,19 @@ export const AskIPUModal: React.FC<AskIPUModalProps> = ({ visible, onClose }) =>
   );
 };
 
+// Backwards compatibility alias
+export const AskIPUModal = AskAttendlyModal;
+
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.88)',
     justifyContent: 'flex-end',
   },
   modalContainer: {
-    backgroundColor: THEME.colors.background,
     borderTopLeftRadius: THEME.borderRadius.xxl,
     borderTopRightRadius: THEME.borderRadius.xxl,
     height: '82%',
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
     paddingTop: THEME.spacing.md,
   },
   headerRow: {
@@ -241,7 +269,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: THEME.spacing.xl,
     paddingBottom: THEME.spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
   },
   headerLeft: {
     flex: 1,
@@ -250,7 +277,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: THEME.colors.cyanSubtle,
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -258,7 +284,6 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   badgeText: {
-    color: THEME.colors.cyan,
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
     letterSpacing: 0.8,
@@ -266,17 +291,14 @@ const styles = StyleSheet.create({
   titleText: {
     fontSize: THEME.typography.sizes.md,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
   },
   closeBtn: {
     padding: 6,
     borderRadius: THEME.borderRadius.pill,
-    backgroundColor: THEME.colors.surfaceSubtle,
   },
   promptsWrapper: {
     height: 48,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
     justifyContent: 'center',
   },
   promptsRow: {
@@ -285,16 +307,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   promptChip: {
-    backgroundColor: THEME.colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
     alignSelf: 'center',
   },
   promptChipText: {
-    color: THEME.colors.cyan,
     fontSize: 11,
     fontWeight: THEME.typography.weights.bold,
   },
@@ -324,12 +343,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  userAvatar: {
-    backgroundColor: THEME.colors.surfaceElevated,
-  },
-  aiAvatar: {
-    backgroundColor: THEME.colors.cyanSubtle,
-  },
+  userAvatar: {},
+  aiAvatar: {},
   msgBubble: {
     maxWidth: '82%',
     borderRadius: THEME.borderRadius.lg,
@@ -337,19 +352,14 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   userBubble: {
-    backgroundColor: THEME.colors.surfaceElevated,
     borderTopRightRadius: 2,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   aiBubble: {
-    backgroundColor: THEME.colors.surface,
     borderTopLeftRadius: 2,
     borderWidth: 1,
-    borderColor: THEME.colors.borderHighlight,
   },
   msgText: {
-    color: THEME.colors.textPrimary,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -360,23 +370,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: THEME.spacing.xl,
     paddingVertical: THEME.spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: THEME.colors.borderSubtle,
-    backgroundColor: THEME.colors.background,
     marginBottom: Platform.OS === 'ios' ? 16 : 8,
   },
   textInput: {
     flex: 1,
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.pill,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    color: THEME.colors.textPrimary,
     fontSize: 12,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   sendBtn: {
-    backgroundColor: THEME.colors.cyan,
     width: 36,
     height: 36,
     borderRadius: 18,

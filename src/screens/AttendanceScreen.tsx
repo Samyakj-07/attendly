@@ -10,6 +10,7 @@ import {
   TextInput,
 } from 'react-native';
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
 import { SubjectCard } from '../components/SubjectCard';
 import { SimulatorModal } from '../components/SimulatorModal';
@@ -21,9 +22,9 @@ import {
   Search,
   BookOpenCheck,
   X,
-  History,
   Trash2,
   CalendarDays,
+  AlertCircle,
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 import { attendancePercentage } from '../utils/ipuEngine';
@@ -43,6 +44,23 @@ const TIME_PRESETS = [
   { label: '01:30 – 03:30 (Lab)', start: '01:30', end: '03:30' },
 ];
 
+const formatTimeString = (t: string): string => {
+  if (!t) return '09:30';
+  const clean = t.trim();
+  if (!clean.includes(':')) {
+    const num = parseInt(clean);
+    if (!isNaN(num)) {
+      return `${num.toString().padStart(2, '0')}:00`;
+    }
+    return clean;
+  }
+  const [h, m] = clean.split(':');
+  const hNum = parseInt(h);
+  const mNum = parseInt(m) || 0;
+  if (isNaN(hNum)) return clean;
+  return `${hNum.toString().padStart(2, '0')}:${mNum.toString().padStart(2, '0')}`;
+};
+
 interface CourseScheduleSlot {
   id: string;
   day: DayOfWeek;
@@ -51,7 +69,8 @@ interface CourseScheduleSlot {
 }
 
 export const AttendanceScreen: React.FC = () => {
-  const { subjects, addSubject, addTimetableSlot, overallPercentage, profile } =
+  const { colors, isDark } = useTheme();
+  const { subjects, addSubject, addTimetableSlot, addMultipleTimetableSlots, overallPercentage, profile } =
     useAttendance();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,6 +93,7 @@ export const AttendanceScreen: React.FC = () => {
   const [subCredits, setSubCredits] = useState('4');
   const [subLTP, setSubLTP] = useState('3-0-2');
   const [isLab2x, setIsLab2x] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Initial Attendance Count Inputs
   const [subInitialPresent, setSubInitialPresent] = useState('');
@@ -146,41 +166,42 @@ export const AttendanceScreen: React.FC = () => {
   };
 
   const handleCreateSubject = async () => {
-    if (!subName.trim() || !subCode.trim()) return;
+    setFormError(null);
+    if (!subName.trim()) {
+      setFormError('Please enter a course name (e.g. Operating Systems).');
+      AppHaptics.warning();
+      return;
+    }
     AppHaptics.success();
 
-    const createdSubId = `sub_${Date.now()}`;
-    const cleanCode = subCode.trim().toUpperCase();
-    const cleanName = subName.trim();
-
-    await addSubject({
-      id: createdSubId,
-      name: cleanName,
-      code: cleanCode,
+    const finalCode = subCode.trim() || subName.trim().slice(0, 3).toUpperCase() + '-101';
+    const createdSub = await addSubject({
+      name: subName.trim(),
+      code: finalCode,
       type: subType,
-      faculty: subFaculty.trim(),
-      room: subRoom.trim(),
+      faculty: subFaculty.trim() || undefined,
+      room: subRoom.trim() || 'A-204',
       credits: parseInt(subCredits) || 4,
-      ltp: subLTP.trim() || '3-0-0',
-      isLab2x: isLab2x || subType === 'Lab',
+      ltp: subLTP.trim() || '3-0-2',
+      isLab2x,
       targetRequirement: target,
       attended: initialPresentNum,
       total: initialTotalNum,
     });
 
-    // Automatically create the weekly timetable slots for this subject
-    for (const cs of courseSlots) {
-      await addTimetableSlot({
-        day: cs.day,
-        startTime: cs.startTime.trim() || '09:30',
-        endTime: cs.endTime.trim() || '10:30',
-        subjectId: createdSubId,
-        subjectName: cleanName,
-        subjectCode: cleanCode,
-        room: subRoom.trim() || 'A-204',
-        faculty: subFaculty.trim(),
-        type: isLab2x ? 'Lab' : subType,
-      });
+    if (createdSub && courseSlots.length > 0) {
+      const slotsToAdd = courseSlots.map(slot => ({
+        subjectId: createdSub.id,
+        subjectName: createdSub.name,
+        subjectCode: createdSub.code,
+        type: createdSub.type,
+        day: slot.day,
+        startTime: formatTimeString(slot.startTime) || '09:30',
+        endTime: formatTimeString(slot.endTime) || '10:30',
+        room: createdSub.room || subRoom.trim() || 'A-204',
+        faculty: createdSub.faculty || subFaculty.trim(),
+      }));
+      await addMultipleTimetableSlots(slotsToAdd);
     }
 
     setIsAddModalOpen(false);
@@ -190,17 +211,18 @@ export const AttendanceScreen: React.FC = () => {
     setSubInitialPresent('');
     setSubInitialAbsent('');
     setCourseSlots([]);
+    setFormError(null);
   };
 
   return (
-    <SafeAreaView style={styles.safeContainer}>
+    <SafeAreaView style={[styles.safeContainer, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Editorial Header */}
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.screenEyebrow}>ACADEMIC CURRICULUM</Text>
-            <Text style={styles.screenTitle}>Courses.</Text>
-            <Text style={styles.screenSubtitle}>
+            <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>ACADEMIC CURRICULUM</Text>
+            <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Courses.</Text>
+            <Text style={[styles.screenSubtitle, { color: colors.textTertiary }]}>
               {subjects.length} Registered Courses · {overallPercentage.toFixed(1)}% Aggregate
             </Text>
           </View>
@@ -208,45 +230,45 @@ export const AttendanceScreen: React.FC = () => {
           <View style={styles.headerActions}>
             {/* 📅 Interactive Attendance Calendar Button */}
             <TouchableOpacity
-              style={styles.pastLogsBtn}
+              style={[styles.pastLogsBtn, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderHighlight }]}
               activeOpacity={0.8}
               onPress={() => {
                 AppHaptics.light();
                 setIsPastLogsOpen(true);
               }}
             >
-              <CalendarDays size={13} color={THEME.colors.cyan} />
-              <Text style={styles.pastLogsBtnText}>Calendar</Text>
+              <CalendarDays size={13} color={colors.accent} />
+              <Text style={[styles.pastLogsBtnText, { color: colors.accent }]}>Calendar</Text>
             </TouchableOpacity>
 
             {/* + Add Course Button */}
             <TouchableOpacity
-              style={styles.addBtn}
+              style={[styles.addBtn, { backgroundColor: colors.textPrimary }]}
               activeOpacity={0.8}
               onPress={() => {
                 AppHaptics.light();
                 setIsAddModalOpen(true);
               }}
             >
-              <Plus size={13} color={THEME.colors.textInverse} />
-              <Text style={styles.addBtnText}>Add Course</Text>
+              <Plus size={13} color={colors.textInverse} />
+              <Text style={[styles.addBtnText, { color: colors.textInverse }]}>Add Course</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Search Bar */}
-        <View style={styles.searchBar}>
-          <Search size={14} color={THEME.colors.textTertiary} />
+        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+          <Search size={14} color={colors.textTertiary} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.textPrimary }]}
             placeholder="Search course title or code..."
-            placeholderTextColor={THEME.colors.textTertiary}
+            placeholderTextColor={colors.textTertiary}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <X size={14} color={THEME.colors.textTertiary} />
+              <X size={14} color={colors.textTertiary} />
             </TouchableOpacity>
           )}
         </View>
@@ -262,7 +284,8 @@ export const AttendanceScreen: React.FC = () => {
               key={f}
               style={[
                 styles.filterPill,
-                activeFilter === f && styles.filterPillActive,
+                { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                activeFilter === f && { backgroundColor: colors.surfaceElevated, borderColor: colors.borderHighlight },
               ]}
               onPress={() => {
                 AppHaptics.selection();
@@ -272,7 +295,8 @@ export const AttendanceScreen: React.FC = () => {
               <Text
                 style={[
                   styles.filterPillText,
-                  activeFilter === f && styles.filterPillTextActive,
+                  { color: colors.textTertiary },
+                  activeFilter === f && { color: colors.textPrimary },
                 ]}
               >
                 {f}
@@ -284,14 +308,14 @@ export const AttendanceScreen: React.FC = () => {
         {/* List of Subjects */}
         {filteredSubjects.length === 0 ? (
           <View style={styles.emptyCard}>
-            <BookOpenCheck size={28} color={THEME.colors.textTertiary} />
-            <Text style={styles.emptyTitle}>No courses found</Text>
+            <BookOpenCheck size={28} color={colors.textTertiary} />
+            <Text style={[styles.emptyTitle, { color: colors.textTertiary }]}>No courses found</Text>
             <TouchableOpacity
-              style={styles.emptyAddBtn}
+              style={[styles.emptyAddBtn, { backgroundColor: colors.surfaceElevated }]}
               onPress={() => setIsAddModalOpen(true)}
             >
-              <Plus size={13} color={THEME.colors.textPrimary} />
-              <Text style={styles.emptyAddBtnText}>Add Your First Course</Text>
+              <Plus size={13} color={colors.textPrimary} />
+              <Text style={[styles.emptyAddBtnText, { color: colors.textPrimary }]}>Add Your First Course</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -319,39 +343,57 @@ export const AttendanceScreen: React.FC = () => {
 
       {/* Add Subject Modal with Initial Counts & Timetable Slots */}
       <Modal visible={isAddModalOpen} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add IPU Course & Schedule</Text>
+        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Add Course & Schedule</Text>
               <TouchableOpacity
-                style={styles.closeBtn}
+                style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
                 onPress={() => setIsAddModalOpen(false)}
               >
-                <X size={18} color={THEME.colors.textSecondary} />
+                <X size={18} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ padding: THEME.spacing.xl }}>
+              {formError && (
+                <View
+                  style={[
+                    styles.errorBox,
+                    {
+                      backgroundColor: colors.crimsonSubtle,
+                      borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(200, 92, 92, 0.3)',
+                    },
+                  ]}
+                >
+                  <AlertCircle size={14} color={colors.crimson} />
+                  <Text style={[styles.errorText, { color: colors.crimson }]}>{formError}</Text>
+                </View>
+              )}
+
               {/* Course Name */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>COURSE / SUBJECT NAME</Text>
+                <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>COURSE / SUBJECT NAME</Text>
                 <TextInput
-                  style={styles.textInput}
+                  style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
                   placeholder="e.g. Operating Systems"
-                  placeholderTextColor={THEME.colors.textTertiary}
+                  placeholderTextColor={colors.textTertiary}
                   value={subName}
-                  onChangeText={setSubName}
+                  onChangeText={text => {
+                    setSubName(text);
+                    if (formError) setFormError(null);
+                  }}
                 />
               </View>
 
               {/* Code & L-T-P */}
               <View style={styles.twoCol}>
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel}>COURSE CODE</Text>
+                  <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>COURSE CODE (OPTIONAL)</Text>
                   <TextInput
-                    style={styles.textInput}
-                    placeholder="e.g. BCS-303"
-                    placeholderTextColor={THEME.colors.textTertiary}
+                    style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
+                    placeholder="Auto or BCS-303"
+                    placeholderTextColor={colors.textTertiary}
                     value={subCode}
                     onChangeText={setSubCode}
                     autoCapitalize="characters"
@@ -359,11 +401,11 @@ export const AttendanceScreen: React.FC = () => {
                 </View>
 
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel}>L-T-P</Text>
+                  <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>L-T-P</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
                     placeholder="3-0-2"
-                    placeholderTextColor={THEME.colors.textTertiary}
+                    placeholderTextColor={colors.textTertiary}
                     value={subLTP}
                     onChangeText={setSubLTP}
                   />
@@ -371,21 +413,21 @@ export const AttendanceScreen: React.FC = () => {
               </View>
 
               {/* 🎯 INITIAL ATTENDANCE SO FAR */}
-              <View style={styles.initialAttendanceBox}>
-                <Text style={styles.initialBoxTitle}>INITIAL ATTENDANCE (SO FAR)</Text>
-                <Text style={styles.initialBoxSub}>
+              <View style={[styles.initialAttendanceBox, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                <Text style={[styles.initialBoxTitle, { color: colors.accent }]}>INITIAL ATTENDANCE (SO FAR)</Text>
+                <Text style={[styles.initialBoxSub, { color: colors.textTertiary }]}>
                   If classes have already started, enter your current counts:
                 </Text>
 
                 <View style={styles.twoCol}>
                   <View style={[styles.fieldGroup, { flex: 1 }]}>
-                    <Text style={[styles.fieldLabel, { color: THEME.colors.emerald }]}>
+                    <Text style={[styles.fieldLabel, { color: colors.emerald }]}>
                       ATTENDED (PRESENT)
                     </Text>
                     <TextInput
-                      style={[styles.textInput, { borderColor: 'rgba(16, 185, 129, 0.4)' }]}
+                      style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : 'rgba(46, 139, 99, 0.4)' }]}
                       placeholder="0"
-                      placeholderTextColor={THEME.colors.textTertiary}
+                      placeholderTextColor={colors.textTertiary}
                       value={subInitialPresent}
                       onChangeText={setSubInitialPresent}
                       keyboardType="numeric"
@@ -393,13 +435,13 @@ export const AttendanceScreen: React.FC = () => {
                   </View>
 
                   <View style={[styles.fieldGroup, { flex: 1 }]}>
-                    <Text style={[styles.fieldLabel, { color: THEME.colors.crimson }]}>
+                    <Text style={[styles.fieldLabel, { color: colors.crimson }]}>
                       MISSED (ABSENT)
                     </Text>
                     <TextInput
-                      style={[styles.textInput, { borderColor: 'rgba(239, 68, 68, 0.4)' }]}
+                      style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(200, 92, 92, 0.4)' }]}
                       placeholder="0"
-                      placeholderTextColor={THEME.colors.textTertiary}
+                      placeholderTextColor={colors.textTertiary}
                       value={subInitialAbsent}
                       onChangeText={setSubInitialAbsent}
                       keyboardType="numeric"
@@ -408,15 +450,15 @@ export const AttendanceScreen: React.FC = () => {
                 </View>
 
                 {initialTotalNum > 0 && (
-                  <View style={styles.initialPreviewBadge}>
-                    <Text style={styles.initialPreviewText}>
+                  <View style={[styles.initialPreviewBadge, { backgroundColor: colors.surfaceSubtle }]}>
+                    <Text style={[styles.initialPreviewText, { color: colors.textSecondary }]}>
                       Starting at:{' '}
                       <Text
                         style={{
                           color:
                             initialPct >= target
-                              ? THEME.colors.emerald
-                              : THEME.colors.crimson,
+                              ? colors.emerald
+                              : colors.crimson,
                           fontWeight: '800',
                         }}
                       >
@@ -429,14 +471,14 @@ export const AttendanceScreen: React.FC = () => {
               </View>
 
               {/* 📅 WEEKLY TIMETABLE SCHEDULE (MANUAL & EDITABLE) */}
-              <View style={styles.timetableSectionBox}>
+              <View style={[styles.timetableSectionBox, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
                 <View style={styles.timetableSectionHeader}>
-                  <CalendarDays size={13} color={THEME.colors.cyan} />
-                  <Text style={styles.timetableSectionTitle}>
+                  <CalendarDays size={13} color={colors.accent} />
+                  <Text style={[styles.timetableSectionTitle, { color: colors.accent }]}>
                     WEEKLY TIMETABLE SCHEDULE
                   </Text>
                 </View>
-                <Text style={styles.timetableSectionSub}>
+                <Text style={[styles.timetableSectionSub, { color: colors.textTertiary }]}>
                   Tap days to assign classes. Customize exact start and end times manually:
                 </Text>
 
@@ -450,27 +492,90 @@ export const AttendanceScreen: React.FC = () => {
                         key={d}
                         style={[
                           styles.dayToggleChip,
-                          isDayActive && styles.dayToggleChipActive,
+                          { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                          isDayActive && { backgroundColor: colors.surfaceElevated, borderColor: colors.accent },
                         ]}
                         onPress={() => handleToggleDaySlot(d)}
                       >
                         <Text
                           style={[
                             styles.dayToggleText,
-                            isDayActive && styles.dayToggleTextActive,
+                            { color: colors.textTertiary },
+                            isDayActive && { color: colors.accent },
                           ]}
                         >
                           {d}
                         </Text>
                         {slotsCount > 0 && (
-                          <View style={styles.dayDot}>
-                            <Text style={styles.dayDotText}>{slotsCount}</Text>
+                          <View style={[styles.dayDot, { backgroundColor: colors.accent }]}>
+                            <Text style={[styles.dayDotText, { color: colors.textInverse }]}>{slotsCount}</Text>
                           </View>
                         )}
                       </TouchableOpacity>
                     );
                   })}
                 </View>
+
+                {/* 1-Tap Quick Schedule Presets */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 6, marginBottom: 8 }}
+                >
+                  <TouchableOpacity
+                    style={[styles.presetChipSmall, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      const days: DayOfWeek[] = ['MON', 'WED', 'FRI'];
+                      setCourseSlots(days.map((d, i) => ({
+                        id: `slot_${Date.now()}_${i}_${d}`,
+                        day: d,
+                        startTime: '09:30',
+                        endTime: '10:30',
+                      })));
+                    }}
+                  >
+                    <Text style={[styles.presetChipTextSmall, { color: colors.textSecondary }]}>
+                      + Mon / Wed / Fri (09:30)
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.presetChipSmall, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      const days: DayOfWeek[] = ['TUE', 'THU'];
+                      setCourseSlots(days.map((d, i) => ({
+                        id: `slot_${Date.now()}_${i}_${d}`,
+                        day: d,
+                        startTime: '10:30',
+                        endTime: '11:30',
+                      })));
+                    }}
+                  >
+                    <Text style={[styles.presetChipTextSmall, { color: colors.textSecondary }]}>
+                      + Tue / Thu (10:30)
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.presetChipSmall, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      const days: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI'];
+                      setCourseSlots(days.map((d, i) => ({
+                        id: `slot_${Date.now()}_${i}_${d}`,
+                        day: d,
+                        startTime: '09:30',
+                        endTime: '10:30',
+                      })));
+                    }}
+                  >
+                    <Text style={[styles.presetChipTextSmall, { color: colors.textSecondary }]}>
+                      + Mon – Fri (09:30)
+                    </Text>
+                  </TouchableOpacity>
+                </ScrollView>
 
                 {/* Configured Slots per Active Day */}
                 {courseSlots.length > 0 && (
@@ -480,62 +585,62 @@ export const AttendanceScreen: React.FC = () => {
                       if (daySlots.length === 0) return null;
 
                       return (
-                        <View key={`config_${d}`} style={styles.daySlotGroup}>
+                        <View key={`config_${d}`} style={[styles.daySlotGroup, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}>
                           <View style={styles.dayGroupHeader}>
-                            <Text style={styles.dayGroupTitle}>{d} SCHEDULE</Text>
+                            <Text style={[styles.dayGroupTitle, { color: colors.textPrimary }]}>{d} SCHEDULE</Text>
                             <TouchableOpacity
                               style={styles.addExtraBtn}
                               onPress={() => handleAddExtraSlotForDay(d)}
                             >
-                              <Plus size={10} color={THEME.colors.cyan} />
-                              <Text style={styles.addExtraText}>+ Add Period</Text>
+                              <Plus size={10} color={colors.accent} />
+                              <Text style={[styles.addExtraText, { color: colors.accent }]}>+ Add Period</Text>
                             </TouchableOpacity>
                           </View>
 
                           {daySlots.map((slot, slotIdx) => (
-                            <View key={slot.id} style={styles.slotEditCard}>
+                            <View key={slot.id} style={[styles.slotEditCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
                               <View style={styles.slotCardHeader}>
-                                <Text style={styles.slotCardTitle}>Period {slotIdx + 1}</Text>
+                                <Text style={[styles.slotCardTitle, { color: colors.textPrimary }]}>Period {slotIdx + 1}</Text>
                                 <TouchableOpacity
                                   style={styles.removeSlotBtn}
                                   onPress={() => handleRemoveSlot(slot.id)}
                                 >
-                                  <Trash2 size={11} color={THEME.colors.crimson} />
-                                  <Text style={styles.removeSlotText}>Delete</Text>
+                                  <Trash2 size={11} color={colors.crimson} />
+                                  <Text style={[styles.removeSlotText, { color: colors.crimson }]}>Delete</Text>
                                 </TouchableOpacity>
                               </View>
 
                               {/* Manual Start & End Time Inputs */}
                               <View style={styles.slotTimeInputRow}>
                                 <View style={{ flex: 1 }}>
-                                  <Text style={styles.timeInputSubLabel}>START TIME</Text>
+                                  <Text style={[styles.timeInputSubLabel, { color: colors.textTertiary }]}>START TIME</Text>
                                   <TextInput
-                                    style={styles.timeInputSmall}
+                                    style={[styles.timeInputSmall, { backgroundColor: colors.surfaceSubtle, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
                                     value={slot.startTime}
                                     onChangeText={val =>
                                       handleUpdateTimeForSlot(slot.id, val, slot.endTime)
                                     }
                                     placeholder="09:30"
-                                    placeholderTextColor={THEME.colors.textTertiary}
+                                    placeholderTextColor={colors.textTertiary}
                                   />
                                 </View>
-                                <Text style={styles.timeToDivider}>–</Text>
+                                <Text style={[styles.timeToDivider, { color: colors.textTertiary }]}>–</Text>
                                 <View style={{ flex: 1 }}>
-                                  <Text style={styles.timeInputSubLabel}>END TIME</Text>
+                                  <Text style={[styles.timeInputSubLabel, { color: colors.textTertiary }]}>END TIME</Text>
                                   <TextInput
-                                    style={styles.timeInputSmall}
+                                    style={[styles.timeInputSmall, { backgroundColor: colors.surfaceSubtle, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
                                     value={slot.endTime}
                                     onChangeText={val =>
                                       handleUpdateTimeForSlot(slot.id, slot.startTime, val)
                                     }
                                     placeholder="10:30"
-                                    placeholderTextColor={THEME.colors.textTertiary}
+                                    placeholderTextColor={colors.textTertiary}
                                   />
                                 </View>
                               </View>
 
                               {/* Quick Presets aligned to 09:30 */}
-                              <Text style={[styles.timeInputSubLabel, { marginTop: 6, marginBottom: 3 }]}>
+                              <Text style={[styles.timeInputSubLabel, { color: colors.textTertiary, marginTop: 6, marginBottom: 3 }]}>
                                 1-TAP PRESETS (09:30 START)
                               </Text>
                               <ScrollView
@@ -548,9 +653,12 @@ export const AttendanceScreen: React.FC = () => {
                                     key={tp.label}
                                     style={[
                                       styles.presetChipSmall,
+                                      { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
                                       slot.startTime === tp.start &&
-                                        slot.endTime === tp.end &&
-                                        styles.presetChipSmallActive,
+                                        slot.endTime === tp.end && [
+                                          styles.presetChipSmallActive,
+                                          { borderColor: colors.accent, backgroundColor: colors.accentSubtle },
+                                        ],
                                     ]}
                                     onPress={() => {
                                       AppHaptics.selection();
@@ -560,9 +668,10 @@ export const AttendanceScreen: React.FC = () => {
                                     <Text
                                       style={[
                                         styles.presetChipTextSmall,
+                                        { color: colors.textTertiary },
                                         slot.startTime === tp.start &&
                                           slot.endTime === tp.end && {
-                                            color: THEME.colors.cyan,
+                                            color: colors.accent,
                                           },
                                       ]}
                                     >
@@ -582,7 +691,7 @@ export const AttendanceScreen: React.FC = () => {
 
               {/* Category */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>CATEGORY</Text>
+                <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>CATEGORY</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -594,7 +703,8 @@ export const AttendanceScreen: React.FC = () => {
                         key={t}
                         style={[
                           styles.catPill,
-                          subType === t && styles.catPillActive,
+                          { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+                          subType === t && [styles.catPillActive, { backgroundColor: colors.accentSubtle, borderColor: colors.accent }],
                         ]}
                         onPress={() => {
                           setSubType(t);
@@ -604,7 +714,8 @@ export const AttendanceScreen: React.FC = () => {
                         <Text
                           style={[
                             styles.catPillText,
-                            subType === t && { color: THEME.colors.cyan },
+                            { color: colors.textSecondary },
+                            subType === t && { color: colors.accent },
                           ]}
                         >
                           {t}
@@ -618,22 +729,22 @@ export const AttendanceScreen: React.FC = () => {
               {/* Room & Faculty */}
               <View style={styles.twoCol}>
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel}>ROOM NO.</Text>
+                  <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>ROOM NO.</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
                     placeholder="A-204"
-                    placeholderTextColor={THEME.colors.textTertiary}
+                    placeholderTextColor={colors.textTertiary}
                     value={subRoom}
                     onChangeText={setSubRoom}
                   />
                 </View>
 
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
-                  <Text style={styles.fieldLabel}>FACULTY (OPTIONAL)</Text>
+                  <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>FACULTY (OPTIONAL)</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
                     placeholder="Dr. / Prof."
-                    placeholderTextColor={THEME.colors.textTertiary}
+                    placeholderTextColor={colors.textTertiary}
                     value={subFaculty}
                     onChangeText={setSubFaculty}
                   />
@@ -642,21 +753,21 @@ export const AttendanceScreen: React.FC = () => {
 
               {/* 2-Hour Lab Option */}
               <TouchableOpacity
-                style={styles.labToggleRow}
+                style={[styles.labToggleRow, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
                 onPress={() => setIsLab2x(!isLab2x)}
               >
-                <View style={[styles.checkbox, isLab2x && styles.checkboxActive]}>
+                <View style={[styles.checkbox, { borderColor: colors.textTertiary }, isLab2x && [styles.checkboxActive, { backgroundColor: colors.accent, borderColor: colors.accent }]]}>
                   {isLab2x && (
-                    <Text style={{ color: '#000', fontWeight: '800', fontSize: 11 }}>
+                    <Text style={{ color: colors.textInverse, fontWeight: '800', fontSize: 11 }}>
                       ✓
                     </Text>
                   )}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.labToggleTitle}>
+                  <Text style={[styles.labToggleTitle, { color: colors.textPrimary }]}>
                     2-Hour Lab Practical (2x Units)
                   </Text>
-                  <Text style={styles.labToggleSubtitle}>
+                  <Text style={[styles.labToggleSubtitle, { color: colors.textTertiary }]}>
                     Counts as 2 attendance units per practical session.
                   </Text>
                 </View>
@@ -664,11 +775,11 @@ export const AttendanceScreen: React.FC = () => {
 
               {/* Save Course & Schedule Button */}
               <TouchableOpacity
-                style={styles.createCourseBtn}
+                style={[styles.createCourseBtn, { backgroundColor: colors.textPrimary }]}
                 activeOpacity={0.8}
                 onPress={handleCreateSubject}
               >
-                <Text style={styles.createCourseText}>
+                <Text style={[styles.createCourseText, { color: colors.textInverse }]}>
                   Save Course{' '}
                   {courseSlots.length > 0
                     ? `& ${courseSlots.length} Timetable Slot${courseSlots.length > 1 ? 's' : ''}`
@@ -716,7 +827,6 @@ export const AttendanceScreen: React.FC = () => {
 const styles = StyleSheet.create({
   safeContainer: {
     flex: 1,
-    backgroundColor: THEME.colors.background,
   },
   scrollContent: {
     paddingBottom: 100,
@@ -732,19 +842,16 @@ const styles = StyleSheet.create({
   screenEyebrow: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textTertiary,
     letterSpacing: THEME.typography.letterSpacing.widest,
   },
   screenTitle: {
     fontSize: THEME.typography.sizes.headline,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
     letterSpacing: THEME.typography.letterSpacing.tighter,
     lineHeight: 38,
   },
   screenSubtitle: {
     fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textTertiary,
     marginTop: 2,
   },
   headerActions: {
@@ -757,15 +864,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: THEME.colors.surfaceElevated,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    borderColor: THEME.colors.borderHighlight,
   },
   pastLogsBtnText: {
-    color: THEME.colors.cyan,
     fontSize: 11,
     fontWeight: THEME.typography.weights.bold,
   },
@@ -773,13 +877,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: THEME.colors.textPrimary,
     paddingHorizontal: 11,
     paddingVertical: 6,
     borderRadius: THEME.borderRadius.pill,
   },
   addBtnText: {
-    color: THEME.colors.textInverse,
     fontSize: 11,
     fontWeight: THEME.typography.weights.heavy,
   },
@@ -787,18 +889,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.md,
     paddingHorizontal: 12,
     paddingVertical: 8,
     marginHorizontal: THEME.spacing.xl,
     marginTop: THEME.spacing.md,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   searchInput: {
     flex: 1,
-    color: THEME.colors.textPrimary,
     fontSize: THEME.typography.sizes.xs,
   },
   filterScroll: {
@@ -807,25 +906,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   filterPill: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
-  filterPillActive: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderColor: THEME.colors.borderHighlight,
-  },
+  filterPillActive: {},
   filterPillText: {
-    color: THEME.colors.textTertiary,
     fontSize: 10,
     fontWeight: THEME.typography.weights.bold,
   },
-  filterPillTextActive: {
-    color: THEME.colors.textPrimary,
-  },
+  filterPillTextActive: {},
   emptyCard: {
     padding: 32,
     alignItems: 'center',
@@ -833,7 +924,6 @@ const styles = StyleSheet.create({
     marginTop: 30,
   },
   emptyTitle: {
-    color: THEME.colors.textTertiary,
     fontSize: THEME.typography.sizes.xs,
     marginTop: 8,
   },
@@ -841,29 +931,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: THEME.colors.surfaceElevated,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: THEME.borderRadius.pill,
     marginTop: 14,
   },
   emptyAddBtnText: {
-    color: THEME.colors.textPrimary,
     fontSize: 11,
     fontWeight: THEME.typography.weights.bold,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.88)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: THEME.colors.background,
     borderTopLeftRadius: THEME.borderRadius.xxl,
     borderTopRightRadius: THEME.borderRadius.xxl,
     maxHeight: '92%',
     borderWidth: 1,
-    borderColor: THEME.colors.borderLight,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -872,17 +957,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: THEME.spacing.xl,
     paddingVertical: THEME.spacing.lg,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
   },
   modalTitle: {
     fontSize: THEME.typography.sizes.md + 1,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
   },
   closeBtn: {
     padding: 6,
     borderRadius: THEME.borderRadius.pill,
-    backgroundColor: THEME.colors.surfaceSubtle,
   },
   fieldGroup: {
     marginBottom: THEME.spacing.md,
@@ -891,45 +973,36 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textTertiary,
     letterSpacing: 0.8,
   },
   textInput: {
-    backgroundColor: THEME.colors.surface,
     borderRadius: THEME.borderRadius.md,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    color: THEME.colors.textPrimary,
     fontSize: THEME.typography.sizes.sm,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   twoCol: {
     flexDirection: 'row',
     gap: 12,
   },
   initialAttendanceBox: {
-    backgroundColor: THEME.colors.surface,
     padding: 12,
     borderRadius: THEME.borderRadius.lg,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
     marginBottom: THEME.spacing.md,
   },
   initialBoxTitle: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.cyan,
     letterSpacing: 0.8,
     marginBottom: 2,
   },
   initialBoxSub: {
     fontSize: 10,
-    color: THEME.colors.textTertiary,
     marginBottom: 8,
   },
   initialPreviewBadge: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
@@ -938,14 +1011,11 @@ const styles = StyleSheet.create({
   },
   initialPreviewText: {
     fontSize: 10,
-    color: THEME.colors.textSecondary,
   },
   timetableSectionBox: {
-    backgroundColor: THEME.colors.surface,
     padding: 12,
     borderRadius: THEME.borderRadius.lg,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
     marginBottom: THEME.spacing.md,
   },
   timetableSectionHeader: {
@@ -957,12 +1027,10 @@ const styles = StyleSheet.create({
   timetableSectionTitle: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.cyan,
     letterSpacing: 0.8,
   },
   timetableSectionSub: {
     fontSize: 10,
-    color: THEME.colors.textTertiary,
     marginBottom: 8,
   },
   dayGridRow: {
@@ -975,23 +1043,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     borderRadius: THEME.borderRadius.sm,
-    backgroundColor: THEME.colors.surfaceSubtle,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
     position: 'relative',
   },
-  dayToggleChipActive: {
-    backgroundColor: THEME.colors.surfaceElevated,
-    borderColor: THEME.colors.cyan,
-  },
+  dayToggleChipActive: {},
   dayToggleText: {
     fontSize: 10,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textTertiary,
   },
-  dayToggleTextActive: {
-    color: THEME.colors.cyan,
-  },
+  dayToggleTextActive: {},
   dayDot: {
     position: 'absolute',
     top: 2,
@@ -999,13 +1059,11 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: THEME.colors.cyan,
     alignItems: 'center',
     justifyContent: 'center',
   },
   dayDotText: {
     fontSize: 8,
-    color: THEME.colors.background,
     fontWeight: '800',
   },
   slotsConfigList: {
@@ -1013,11 +1071,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   daySlotGroup: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     padding: 8,
     borderRadius: THEME.borderRadius.md,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   dayGroupHeader: {
     flexDirection: 'row',
@@ -1028,7 +1084,6 @@ const styles = StyleSheet.create({
   dayGroupTitle: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
     letterSpacing: 0.5,
   },
   addExtraBtn: {
@@ -1039,15 +1094,12 @@ const styles = StyleSheet.create({
   addExtraText: {
     fontSize: 9,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.cyan,
   },
   slotEditCard: {
-    backgroundColor: THEME.colors.surface,
     padding: 10,
     borderRadius: THEME.borderRadius.md,
     marginBottom: 6,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   slotCardHeader: {
     flexDirection: 'row',
@@ -1058,7 +1110,6 @@ const styles = StyleSheet.create({
   slotCardTitle: {
     fontSize: 10,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
   },
   slotTimeInputRow: {
     flexDirection: 'row',
@@ -1068,44 +1119,33 @@ const styles = StyleSheet.create({
   timeInputSubLabel: {
     fontSize: 8,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textTertiary,
     letterSpacing: 0.5,
     marginBottom: 2,
   },
   timeInputSmall: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     borderRadius: THEME.borderRadius.sm,
     paddingHorizontal: 8,
     paddingVertical: 6,
-    color: THEME.colors.textPrimary,
     fontSize: THEME.typography.sizes.xs,
     fontFamily: 'monospace',
     fontWeight: THEME.typography.weights.bold,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
     textAlign: 'center',
   },
   timeToDivider: {
-    color: THEME.colors.textTertiary,
     fontSize: 12,
     fontWeight: THEME.typography.weights.bold,
     marginTop: 10,
   },
   presetChipSmall: {
-    backgroundColor: THEME.colors.surfaceSubtle,
     paddingHorizontal: 7,
     paddingVertical: 4,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
-  presetChipSmallActive: {
-    borderColor: THEME.colors.cyan,
-    backgroundColor: THEME.colors.cyanSubtle,
-  },
+  presetChipSmallActive: {},
   presetChipTextSmall: {
     fontSize: 9,
-    color: THEME.colors.textTertiary,
     fontWeight: THEME.typography.weights.bold,
   },
   removeSlotBtn: {
@@ -1115,23 +1155,16 @@ const styles = StyleSheet.create({
   },
   removeSlotText: {
     fontSize: 9,
-    color: THEME.colors.crimson,
     fontWeight: THEME.typography.weights.medium,
   },
   catPill: {
-    backgroundColor: THEME.colors.surface,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
-  catPillActive: {
-    backgroundColor: THEME.colors.cyanSubtle,
-    borderColor: THEME.colors.cyan,
-  },
+  catPillActive: {},
   catPillText: {
-    color: THEME.colors.textSecondary,
     fontSize: THEME.typography.sizes.xs,
     fontWeight: THEME.typography.weights.medium,
   },
@@ -1139,37 +1172,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     alignItems: 'center',
-    backgroundColor: THEME.colors.surfaceSubtle,
     padding: 12,
     borderRadius: THEME.borderRadius.md,
     marginVertical: THEME.spacing.md,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
   },
   checkbox: {
     width: 18,
     height: 18,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: THEME.colors.textTertiary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkboxActive: {
-    backgroundColor: THEME.colors.cyan,
-    borderColor: THEME.colors.cyan,
-  },
+  checkboxActive: {},
   labToggleTitle: {
     fontSize: THEME.typography.sizes.xs,
     fontWeight: THEME.typography.weights.bold,
-    color: THEME.colors.textPrimary,
   },
   labToggleSubtitle: {
     fontSize: 10,
-    color: THEME.colors.textTertiary,
   },
   createCourseBtn: {
-    backgroundColor: THEME.colors.textPrimary,
     borderRadius: THEME.borderRadius.xl,
     paddingVertical: 14,
     alignItems: 'center',
@@ -1177,7 +1201,6 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   createCourseText: {
-    color: THEME.colors.textInverse,
     fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.heavy,
   },

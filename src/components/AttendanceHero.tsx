@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { THEME } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
 import { KineticAttendanceRing } from './KineticAttendanceRing';
 import { AnimatedNumber } from './AnimatedNumber';
@@ -16,6 +17,7 @@ export const AttendanceHero: React.FC<AttendanceHeroProps> = ({
   onOpenSimulator,
   onOpenMarks,
 }) => {
+  const { colors, isDark } = useTheme();
   const { overallPercentage, overallBuffer, totalAttended, totalClasses, profile } =
     useAttendance();
 
@@ -27,108 +29,152 @@ export const AttendanceHero: React.FC<AttendanceHeroProps> = ({
   const marksInfo = predictInternalMarks(overallPercentage);
 
   let statusLabel = 'HEALTHY';
-  let statusColor = THEME.colors.emerald;
+  let statusColor = colors.emerald;
 
-  if (isCritical) {
+  if (totalClasses === 0) {
+    statusLabel = 'READY';
+    statusColor = colors.accent;
+  } else if (isCritical) {
     statusLabel = 'CRITICAL';
-    statusColor = THEME.colors.crimson;
+    statusColor = colors.crimson;
   } else if (isWatch) {
     statusLabel = 'WATCH LIST';
-    statusColor = THEME.colors.amber;
+    statusColor = colors.amber;
   } else if (overallPercentage >= 88) {
     statusLabel = 'SAFE';
-    statusColor = THEME.colors.emerald;
+    statusColor = colors.emerald;
   }
 
   const bufferText =
-    overallBuffer >= 0
+    totalClasses === 0
+      ? '0 Classes Logged · On Track'
+      : overallBuffer >= 0
       ? `+${overallBuffer} classes of buffer`
       : `−${Math.abs(overallBuffer)} classes needed to pass`;
 
   return (
-    <TouchableOpacity
-      style={styles.heroContainer}
-      activeOpacity={0.9}
-      onPress={() => {
-        AppHaptics.light();
-        onOpenSimulator?.();
-      }}
-    >
-      {/* Central Kinetic Ring & Massive Display Number */}
-      <View style={styles.ringCenterWrapper}>
-        <KineticAttendanceRing
-          percentage={overallPercentage}
-          target={target}
-          size={230}
-          strokeWidth={3.5}
-          statusColor={statusColor}
+    <View style={styles.heroOuterWrapper}>
+      <TouchableOpacity
+        style={[
+          styles.heroCard,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.borderSubtle,
+            shadowColor: statusColor,
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: isDark ? 0.18 : 0.08,
+            shadowRadius: 24,
+            elevation: 8,
+          },
+        ]}
+        activeOpacity={0.92}
+        onPress={() => {
+          AppHaptics.light();
+          onOpenSimulator?.();
+        }}
+      >
+        {/* Ambient Aura Background Glow */}
+        <View
+          style={[
+            styles.ambientAura,
+            {
+              backgroundColor: statusColor,
+              opacity: isDark ? 0.07 : 0.04,
+            },
+          ]}
         />
 
-        <View style={styles.numberOverlay}>
-          <View style={styles.percentRow}>
-            <AnimatedNumber
-              value={overallPercentage}
-              decimals={1}
-              style={styles.displayPercentage}
-            />
-            <Text style={styles.percentSymbol}>%</Text>
+        {/* Central Kinetic Ring & Display Number */}
+        <View style={styles.ringCenterWrapper}>
+          <KineticAttendanceRing
+            percentage={overallPercentage}
+            target={target}
+            size={220}
+            strokeWidth={4.5}
+            statusColor={statusColor}
+          />
+
+          <View style={styles.numberOverlay}>
+            <View style={styles.percentRow}>
+              <AnimatedNumber
+                value={overallPercentage}
+                decimals={1}
+                style={[styles.displayPercentage, { color: colors.textPrimary }]}
+              />
+              <Text style={[styles.percentSymbol, { color: colors.textTertiary }]}>%</Text>
+            </View>
+
+            <View style={[styles.statusChip, { backgroundColor: isDark ? 'rgba(0,0,0,0.5)' : colors.surfaceSubtle, borderColor: statusColor }]}>
+              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+              <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
+            </View>
+
+            <Text style={[styles.bufferText, { color: colors.textSecondary }]}>{bufferText}</Text>
+          </View>
+        </View>
+
+        {/* Tri-Pillar Bento Glass Bar */}
+        <View style={[styles.signalsRow, { borderTopColor: colors.borderSubtle, backgroundColor: colors.surfaceSubtle }]}>
+          <View style={styles.signalItem}>
+            <Text style={[styles.signalValue, { color: colors.textPrimary }]}>
+              {totalAttended} <Text style={[styles.signalTotal, { color: colors.textTertiary }]}>/ {totalClasses}</Text>
+            </Text>
+            <Text style={[styles.signalLabel, { color: colors.textTertiary }]}>ATTENDED</Text>
           </View>
 
-          <View style={[styles.statusChip, { borderColor: statusColor }]}>
-            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-            <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
+          <View style={[styles.signalDivider, { backgroundColor: colors.borderSubtle }]} />
+
+          <TouchableOpacity
+            style={styles.signalItem}
+            activeOpacity={0.7}
+            onPress={() => {
+              AppHaptics.light();
+              onOpenMarks?.();
+            }}
+          >
+            <Text style={[styles.signalValue, { color: colors.gold }]}>
+              {marksInfo.marks} <Text style={[styles.signalTotal, { color: colors.textTertiary }]}>/ 5</Text>
+            </Text>
+            <Text style={[styles.signalLabel, { color: colors.textTertiary }]}>INTERNAL MARKS</Text>
+          </TouchableOpacity>
+
+          <View style={[styles.signalDivider, { backgroundColor: colors.borderSubtle }]} />
+
+          <View style={styles.signalItem}>
+            <Text style={[styles.signalValue, { color: colors.textPrimary }]}>{target}%</Text>
+            <Text style={[styles.signalLabel, { color: colors.textTertiary }]}>TARGET</Text>
           </View>
-
-          <Text style={styles.bufferText}>{bufferText}</Text>
         </View>
-      </View>
-
-      {/* Minimal Open-Space Data Signals */}
-      <View style={styles.signalsRow}>
-        <View style={styles.signalItem}>
-          <Text style={styles.signalValue}>
-            {totalAttended} <Text style={styles.signalTotal}>/ {totalClasses}</Text>
-          </Text>
-          <Text style={styles.signalLabel}>ATTENDED</Text>
-        </View>
-
-        <View style={styles.signalDivider} />
-
-        <TouchableOpacity
-          style={styles.signalItem}
-          activeOpacity={0.7}
-          onPress={() => {
-            AppHaptics.light();
-            onOpenMarks?.();
-          }}
-        >
-          <Text style={[styles.signalValue, { color: THEME.colors.gold }]}>
-            {marksInfo.marks} <Text style={styles.signalTotal}>/ 5</Text>
-          </Text>
-          <Text style={styles.signalLabel}>INTERNAL MARKS</Text>
-        </TouchableOpacity>
-
-        <View style={styles.signalDivider} />
-
-        <View style={styles.signalItem}>
-          <Text style={styles.signalValue}>{target}%</Text>
-          <Text style={styles.signalLabel}>IPU TARGET</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  heroContainer: {
+  heroOuterWrapper: {
     paddingHorizontal: THEME.spacing.xl,
-    paddingTop: THEME.spacing.sm,
-    paddingBottom: THEME.spacing.md,
+    paddingTop: THEME.spacing.xs,
+    paddingBottom: THEME.spacing.sm,
+  },
+  heroCard: {
+    borderRadius: THEME.borderRadius.xxl,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
     alignItems: 'center',
+    paddingTop: THEME.spacing.md,
+  },
+  ambientAura: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    top: 20,
+    alignSelf: 'center',
   },
   ringCenterWrapper: {
-    width: 230,
-    height: 230,
+    width: 220,
+    height: 220,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -143,27 +189,25 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
   },
   displayPercentage: {
-    fontSize: 54,
+    fontSize: 50,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
-    letterSpacing: -1.5,
-    lineHeight: 58,
+    letterSpacing: -1.8,
+    lineHeight: 54,
   },
   percentSymbol: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: THEME.typography.weights.semibold,
-    color: THEME.colors.textTertiary,
     marginLeft: 1,
   },
   statusChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
     borderRadius: THEME.borderRadius.pill,
     borderWidth: 1,
-    marginTop: 2,
+    marginTop: 3,
   },
   statusDot: {
     width: 5,
@@ -171,53 +215,47 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
   },
   statusLabel: {
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: THEME.typography.weights.heavy,
     letterSpacing: 0.8,
   },
   bufferText: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textSecondary,
-    fontWeight: THEME.typography.weights.medium,
+    fontSize: 11,
+    fontWeight: THEME.typography.weights.semibold,
     marginTop: 6,
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
   },
   signalsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     width: '100%',
-    paddingHorizontal: THEME.spacing.sm,
-    marginTop: THEME.spacing.lg,
-    paddingTop: THEME.spacing.sm,
+    paddingVertical: 12,
+    paddingHorizontal: THEME.spacing.md,
+    marginTop: THEME.spacing.md,
     borderTopWidth: 1,
-    borderTopColor: THEME.colors.borderSubtle,
   },
   signalItem: {
     flex: 1,
     alignItems: 'center',
   },
   signalValue: {
-    fontSize: THEME.typography.sizes.sm,
+    fontSize: 13,
     fontWeight: THEME.typography.weights.heavy,
-    color: THEME.colors.textPrimary,
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
   },
   signalTotal: {
-    fontSize: 11,
-    color: THEME.colors.textTertiary,
+    fontSize: 10.5,
     fontWeight: THEME.typography.weights.regular,
   },
   signalLabel: {
-    fontSize: 9,
-    color: THEME.colors.textTertiary,
+    fontSize: 8.5,
     fontWeight: THEME.typography.weights.heavy,
     letterSpacing: 0.8,
-    marginTop: 3,
+    marginTop: 2,
   },
   signalDivider: {
     width: 1,
     height: 18,
-    backgroundColor: THEME.colors.borderSubtle,
   },
 });
