@@ -34,6 +34,7 @@ import {
   X,
   Trash2,
   FileCode,
+  FileText,
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 
@@ -55,6 +56,7 @@ export const ProfileScreen: React.FC = React.memo(() => {
   const [editTarget, setEditTarget] = useState(profile.targetAttendance?.toString() || '75');
 
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [restoreJsonText, setRestoreJsonText] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
   const [isTelemetryEnabled, setIsTelemetryEnabled] = useState(true);
@@ -273,7 +275,7 @@ export const ProfileScreen: React.FC = React.memo(() => {
 
         {/* 4. About Attendly Section */}
         <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeader, { color: colors.textTertiary }]}>ABOUT</Text>
+          <Text style={[styles.sectionHeader, { color: colors.textTertiary }]}>ABOUT & LEGAL</Text>
           <View style={[styles.aboutCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
             <View style={styles.aboutTopRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -300,6 +302,24 @@ export const ProfileScreen: React.FC = React.memo(() => {
               Built for students who'd rather know than guess. All calculations, records, and predictions remain 100% on your device.
             </Text>
           </View>
+
+          <TouchableOpacity
+            style={[styles.actionRow, { borderBottomColor: colors.borderSubtle, marginTop: 6 }]}
+            activeOpacity={0.7}
+            onPress={() => {
+              AppHaptics.light();
+              setIsPrivacyModalOpen(true);
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <FileText size={15} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.actionTitle, { color: colors.textPrimary }]}>Privacy Policy & Academic Terms</Text>
+                <Text style={[styles.actionSub, { color: colors.textTertiary }]}>Zero-knowledge storage, telemetry opt-out & legal disclaimer</Text>
+              </View>
+            </View>
+            <ChevronRight size={14} color={colors.textTertiary} />
+          </TouchableOpacity>
         </View>
 
         {/* 5. Privacy Guarantee */}
@@ -563,6 +583,89 @@ export const ProfileScreen: React.FC = React.memo(() => {
           </View>
         </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Privacy Policy & Academic Terms Modal */}
+      <Modal
+        visible={isPrivacyModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsPrivacyModalOpen(false)}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight, maxHeight: '90%' }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
+              <View>
+                <Text style={[styles.modalSheetTitle, { color: colors.textPrimary }]}>Privacy Policy & Terms</Text>
+                <Text style={[styles.policyHeaderMeta, { color: colors.textTertiary }]}>Version 1.0.0 · 100% Offline-First</Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
+                onPress={() => setIsPrivacyModalOpen(false)}
+              >
+                <X size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ padding: THEME.spacing.xl }}>
+              {/* Summary Highlight Box */}
+              <View style={[styles.policySummaryBox, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                <ShieldCheck size={18} color={colors.emerald} />
+                <Text style={[styles.policySummaryText, { color: colors.textSecondary }]}>
+                  <Text style={{ fontWeight: '800', color: colors.textPrimary }}>Zero-Knowledge Privacy: </Text>
+                  All your course counts, timetable slots, student identity, and attendance logs are saved strictly on your device. We do not operate remote user databases or sell student data.
+                </Text>
+              </View>
+
+              {/* Section 1 */}
+              <View style={styles.policySection}>
+                <Text style={[styles.policyHeading, { color: colors.textPrimary }]}>1. Local Storage & Zero Database</Text>
+                <Text style={[styles.policyBody, { color: colors.textSecondary }]}>
+                  Attendly is built as a client-side local ledger. All personal information (Student Name, Enrollment Number, Section, Branch, Target Percentage) and course calculations are persisted exclusively in your device's sandbox storage via AsyncStorage.
+                </Text>
+              </View>
+
+              {/* Section 2 */}
+              <View style={styles.policySection}>
+                <Text style={[styles.policyHeading, { color: colors.textPrimary }]}>2. Anonymous Telemetry & Opt-Out</Text>
+                <Text style={[styles.policyBody, { color: colors.textSecondary }]}>
+                  To identify application crashes and improve performance, Attendly may collect non-identifiable, aggregate telemetry (powered by PostHog). We never collect personal names, roll numbers, or private attendance notes. You can disable telemetry at any time via the toggle in Profile Settings.
+                </Text>
+              </View>
+
+              {/* Section 3 */}
+              <View style={styles.policySection}>
+                <Text style={[styles.policyHeading, { color: colors.textPrimary }]}>3. Data Sovereignty & Backups</Text>
+                <Text style={[styles.policyBody, { color: colors.textSecondary }]}>
+                  Generated PDF attendance statements and semester JSON backups are created entirely offline on your phone using standard system APIs. You retain complete ownership over where your exported files are shared or stored.
+                </Text>
+              </View>
+
+              {/* Section 4 */}
+              <View style={styles.policySection}>
+                <Text style={[styles.policyHeading, { color: colors.textPrimary }]}>4. Academic & Legal Disclaimer</Text>
+                <Text style={[styles.policyBody, { color: colors.textSecondary }]}>
+                  Attendly is an independent student academic planning tool and is not officially affiliated with Guru Gobind Singh Indraprastha University (GGSIPU), BPIT, or any university administration. All attendance percentages and bunk buffer calculations are mathematical estimates. Official college portal records remain the legal authority for exam eligibility.
+                </Text>
+              </View>
+
+              {/* Section 5 */}
+              <View style={styles.policySection}>
+                <Text style={[styles.policyHeading, { color: colors.textPrimary }]}>5. Open Source & Contact</Text>
+                <Text style={[styles.policyBody, { color: colors.textSecondary }]}>
+                  For privacy questions, suggestions, or bug reports, you can contact the developer via the official GitHub repository at https://github.com/Samyakj-07/attendly.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.policyCloseBtn, { backgroundColor: colors.textPrimary }]}
+                onPress={() => setIsPrivacyModalOpen(false)}
+              >
+                <Text style={[styles.policyCloseBtnText, { color: colors.textInverse }]}>I Understand & Agree</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -829,5 +932,47 @@ const styles = StyleSheet.create({
   aboutSub: {
     fontSize: 10,
     lineHeight: 15,
+  },
+  policyHeaderMeta: {
+    fontSize: 10,
+    fontWeight: THEME.typography.weights.medium,
+    marginTop: 2,
+  },
+  policySummaryBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 12,
+    borderRadius: THEME.borderRadius.md,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  policySummaryText: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    flex: 1,
+  },
+  policySection: {
+    marginBottom: 16,
+    gap: 4,
+  },
+  policyHeading: {
+    fontSize: 12.5,
+    fontWeight: THEME.typography.weights.heavy,
+  },
+  policyBody: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  policyCloseBtn: {
+    borderRadius: THEME.borderRadius.xl,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 35,
+  },
+  policyCloseBtnText: {
+    fontSize: 12,
+    fontWeight: THEME.typography.weights.heavy,
   },
 });

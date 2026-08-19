@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy & Terms of Service — Attendly</title>
+  <style>
+    :root {
+      --bg: #F7F6F1;
+      --surface: #FFFFFF;
+      --text-main: #111318;
+      --text-muted: #64748B;
+      --accent: #2563EB;
+      --border: #E2E8F0;
+      --emerald: #10B981;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      line-height: 1.65;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 760px;
+      margin: 40px auto;
+      padding: 32px 24px;
+      background: var(--surface);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    }
+    .header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 20px;
+      margin-bottom: 28px;
+    }
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: -0.5px;
+      margin: 6px 0 10px;
+    }
+    .meta {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .badge-offline {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--emerald);
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+    h2 {
+      font-size: 18px;
+      font-weight: 800;
+      margin-top: 32px;
+      margin-bottom: 12px;
+      border-left: 3px solid var(--accent);
+      padding-left: 10px;
+    }
+    p, li {
+      font-size: 15px;
+      color: #334155;
+    }
+    ul {
+      padding-left: 20px;
+      margin-bottom: 16px;
+    }
+    li {
+      margin-bottom: 6px;
+    }
+    .callout {
+      background: #F8FAFC;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+    .footer {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="eyebrow">Legal & Compliance</div>
+      <h1>Privacy Policy & Terms of Service</h1>
+      <div class="meta">Effective Date: August 19, 2026 &middot; Version 1.0.0</div>
+      <div class="badge-offline">&#x2714; 100% Offline-First Architecture</div>
+    </div>
+
+    <div class="callout">
+      <strong>Summary:</strong> Attendly is designed with a strict privacy-first principle. All your personal attendance logs, subject records, roll numbers, and timetable schedules remain stored locally on your device. We do not operate remote user databases or sell personal data.
+    </div>
+
+    <h2>1. Data Collection and Storage</h2>
+    <p>Attendly operates as a client-side local ledger:</p>
+    <ul>
+      <li><strong>Local Persistence:</strong> All student profile details (Name, College, Branch, Semester, Section, Roll Number), course lists, attendance counts, and timetable slots are saved strictly within your device's local storage (via AsyncStorage / SQLite container).</li>
+      <li><strong>No Remote Database:</strong> We do not run external user account servers, cloud user profiles, or remote database tables. Your attendance records never leave your phone unless you manually export a backup or PDF file.</li>
+    </ul>
+
+    <h2>2. Anonymous Usage Analytics (Telemetry)</h2>
+    <p>To ensure app reliability and identify crashes, Attendly may collect non-identifiable, aggregate diagnostic telemetry (powered by PostHog):</p>
+    <ul>
+      <li><strong>What is collected:</strong> General app interactions (e.g. "PDF exported", "Simulator opened") and device metadata (e.g., OS version, device model).</li>
+      <li><strong>What is NOT collected:</strong> We never collect student names, roll numbers, individual class notes, or personal identifiers.</li>
+      <li><strong>User Control &amp; Opt-Out:</strong> You can completely disable telemetry at any time with a single tap in <em>Profile &rarr; Anonymous Analytics</em>. Disabling immediately purges local queues and halts all outbound diagnostic requests.</li>
+    </ul>
+
+    <h2>3. Backups and File Exports</h2>
+    <ul>
+      <li><strong>PDF Attendance Statements:</strong> Generated locally on your device via <code>expo-print</code> and shared using your operating system's native share sheet.</li>
+      <li><strong>JSON Semester Backups:</strong> Created directly in your device's local document directory. You have 100% sovereignty over where these backup files are stored (Google Drive, local storage, or messaging apps).</li>
+    </ul>
+
+    <h2>4. Academic &amp; Legal Disclaimer</h2>
+    <p>Attendly is an independent student academic management and predictive calculation utility.</p>
+    <ul>
+      <li><strong>Independent Project:</strong> Attendly is not officially affiliated with, endorsed by, or sponsored by Guru Gobind Singh Indraprastha University (GGSIPU), BPIT, or any other university/college.</li>
+      <li><strong>Self-Tracking Aid:</strong> Attendance percentages, bunk buffers, and internal marks predictions are mathematical estimates calculated from user-provided inputs. The official attendance records published by your university or college administration remain the authoritative legal standard for examination eligibility.</li>
+    </ul>
+
+    <h2>5. Children's Privacy</h2>
+    <p>Attendly is designed for college and higher education students. We do not knowingly collect personal identifiable information from children under 13.</p>
+
+    <h2>6. Changes to this Policy</h2>
+    <p>We may update this Privacy Policy from time to time. Any updates will be reflected on this page and documented in the app's version release notes.</p>
+
+    <h2>7. Contact &amp; Support</h2>
+    <p>If you have any questions or feedback regarding this policy or data safety in Attendly, please contact the developer via the official repository or support channel:</p>
+    <ul>
+      <li>GitHub: <a href="https://github.com/Samyakj-07/attendly" target="_blank" rel="noopener noreferrer">https://github.com/Samyakj-07/attendly</a></li>
+    </ul>
+
+    <div class="footer">
+      &copy; 2026 Attendly. Built with privacy and data sovereignty by design.
+    </div>
+  </div>
+</body>
+</html>
