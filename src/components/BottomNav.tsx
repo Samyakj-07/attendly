@@ -1,9 +1,10 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import {
-  Home,
+  Compass,
   BookOpen,
   Calendar,
   BarChart3,
@@ -22,29 +23,32 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   onSelectTab,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const tabs: Array<{ id: NavTab; label: string; icon: React.FC<any> }> = [
-    { id: 'HOME', label: 'Command', icon: Home },
+    { id: 'HOME', label: 'Command', icon: Compass },
     { id: 'ATTENDANCE', label: 'Courses', icon: BookOpen },
     { id: 'TIMETABLE', label: 'Schedule', icon: Calendar },
     { id: 'INSIGHTS', label: 'Analytics', icon: BarChart3 },
     { id: 'PROFILE', label: 'Profile', icon: User },
   ];
 
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 14 : 16);
+
   return (
-    <View style={styles.floatingWrapper} pointerEvents="box-none">
+    <View style={[styles.floatingWrapper, { bottom: bottomInset }]} pointerEvents="box-none">
       <View
         style={[
           styles.navBar,
           {
-            backgroundColor: isDark ? 'rgba(16, 16, 22, 0.94)' : 'rgba(255, 255, 255, 0.94)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(17, 17, 19, 0.08)',
-            shadowColor: isDark ? '#000000' : '#6366F1',
-            shadowOffset: { width: 0, height: isDark ? 10 : 6 },
-            shadowOpacity: isDark ? 0.6 : 0.12,
-            shadowRadius: isDark ? 28 : 20,
-            elevation: isDark ? 14 : 10,
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            shadowColor: '#111827',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.05,
+            shadowRadius: 20,
+            elevation: 4,
           },
         ]}
       >
@@ -60,27 +64,28 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 isActive && [
                   styles.tabButtonActive,
                   {
-                    backgroundColor: isDark ? 'rgba(99, 102, 241, 0.16)' : 'rgba(99, 102, 241, 0.10)',
-                    borderColor: isDark ? 'rgba(99, 102, 241, 0.35)' : 'rgba(99, 102, 241, 0.20)',
-                    borderWidth: 1,
+                    backgroundColor: colors.softBlue,
                   },
                 ],
               ]}
-              activeOpacity={0.75}
+              activeOpacity={0.8}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={`${t.label} tab`}
               onPress={() => {
                 AppHaptics.selection();
                 onSelectTab(t.id);
               }}
             >
               <IconComponent
-                size={18}
-                color={isActive ? colors.accent : colors.textTertiary}
-                strokeWidth={isActive ? 2.5 : 1.8}
+                size={19}
+                color={isActive ? colors.navy : colors.textTertiary}
+                strokeWidth={isActive ? 2.2 : 1.75}
               />
               <Text
                 style={[
                   styles.tabLabel,
-                  { color: isActive ? (isDark ? colors.textPrimary : colors.accent) : colors.textTertiary },
+                  { color: isActive ? colors.navy : colors.textTertiary },
                   isActive && styles.tabLabelActive,
                 ]}
                 numberOfLines={1}
@@ -98,42 +103,42 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 const styles = StyleSheet.create({
   floatingWrapper: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 24 : 14,
-    left: 14,
-    right: 14,
+    left: 16,
+    right: 16,
     alignItems: 'center',
+    zIndex: 999,
   },
   navBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    justifyContent: 'space-between',
     borderRadius: THEME.borderRadius.xxl,
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
     borderWidth: 1,
     width: '100%',
     maxWidth: 420,
+    minHeight: 64,
   },
   tabButton: {
     flex: 1,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 7,
+    paddingVertical: 6,
     paddingHorizontal: 4,
-    borderRadius: THEME.borderRadius.pill,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    borderRadius: THEME.borderRadius.xl,
   },
   tabButtonActive: {
-    borderRadius: THEME.borderRadius.pill,
+    borderRadius: THEME.borderRadius.xl,
   },
   tabLabel: {
-    fontSize: 9,
-    marginTop: 2.5,
-    fontWeight: THEME.typography.weights.semibold,
-    letterSpacing: 0.2,
+    fontSize: 9.5,
+    marginTop: 3,
+    fontWeight: THEME.typography.weights.medium,
+    letterSpacing: 0.1,
   },
   tabLabelActive: {
-    fontWeight: THEME.typography.weights.heavy,
+    fontWeight: THEME.typography.weights.bold,
   },
 });

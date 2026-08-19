@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   ScrollView,
   TextInput,
   Platform,
+  KeyboardAvoidingView,
+  Animated,
 } from 'react-native';
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
@@ -19,7 +21,11 @@ import {
   attendanceBuffer,
   subjectRiskLevel,
   timeToMinutes,
+  getLocalDateString,
+  normalizeTimeString,
+  isSlotMatchingRecord,
 } from '../utils/ipuEngine';
+import { MOTION } from '../utils/motion';
 import {
   Check,
   X,
@@ -34,19 +40,9 @@ import {
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 
-const DAYS: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+import { TIME_PRESETS } from '../constants/timetableConfig';
 
-const TIME_PRESETS = [
-  { label: '09:30 – 10:30', start: '09:30', end: '10:30' },
-  { label: '10:30 – 11:30', start: '10:30', end: '11:30' },
-  { label: '11:30 – 12:30', start: '11:30', end: '12:30' },
-  { label: '12:30 – 01:30', start: '12:30', end: '01:30' },
-  { label: '01:30 – 02:30', start: '01:30', end: '02:30' },
-  { label: '02:30 – 03:30', start: '02:30', end: '03:30' },
-  { label: '03:30 – 04:30', start: '03:30', end: '04:30' },
-  { label: '11:30 – 01:30 (Lab)', start: '11:30', end: '01:30' },
-  { label: '01:30 – 03:30 (Lab)', start: '01:30', end: '03:30' },
-];
+const DAYS: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 interface SubjectCardProps {
   subject: Subject;
@@ -65,15 +61,17 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
   onOpenRecovery,
   onOpenPastHistory,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const {
     markAttendance,
     deleteSubject,
     updateSubject,
     timetable,
+    records,
     addTimetableSlot,
     deleteTimetableSlot,
     profile,
+    todayDay,
   } = useAttendance();
 
   const [isExpanded, setIsExpanded] = useState(false);
@@ -98,13 +96,30 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
   const [newSlotEnd, setNewSlotEnd] = useState('10:30');
 
   const target = subject.targetRequirement || profile.targetAttendance || 75;
+  const isUnstarted = subject.total === 0;
   const pct = attendancePercentage(subject.attended, subject.total);
   const buffer = attendanceBuffer(subject.attended, subject.total, target);
   const risk = subjectRiskLevel(subject.attended, subject.total, target);
-  const isBelow = pct < target;
+  const isBelow = !isUnstarted && pct < target;
+
+  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: isUnstarted ? 0 : Math.min(100, pct),
+      duration: 650,
+      easing: MOTION.easing.easeOut,
+      useNativeDriver: false,
+    }).start();
+  }, [pct, isUnstarted]);
+
+  const animatedProgressWidth = progressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+  });
 
   const formattedIndex = (index + 1).toString().padStart(2, '0');
-  const bufferDisplay = buffer >= 0 ? `+${buffer}` : `${buffer}`;
+  const bufferDisplay = isUnstarted ? 'New' : buffer >= 0 ? `+${buffer}` : `${buffer}`;
 
   // Subject's timetable slots
   const subjectSlots = timetable
@@ -113,10 +128,43 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
   const scheduledDays = Array.from(new Set(subjectSlots.map(s => s.day))).join(', ');
 
   const handleMark = (status: 'PRESENT' | 'ABSENT' | 'CANCELLED' | 'OD') => {
-    markAttendance(subject.id, status, {
-      time: 'Quick Mark',
-      room: subject.room,
+    const todaySlotsForSub = subjectSlots.filter(s => s.day === todayDay);
+    const todayDateStr = getLocalDateString();
+
+    // Find first slot for today that doesn't have an attendance record logged yet
+    const unmarkedSlot = todaySlotsForSub.find(slot => {
+      const normStart = normalizeTimeString(slot.startTime);
+      const normEnd = normalizeTimeString(slot.endTime);
+      return !records.some(
+        r =>
+          r.subjectId === subject.id &&
+          r.date === todayDateStr &&
+          isSlotMatchingRecord(r.slotTime, r.note, normStart, normEnd, slot.day)
+      );
     });
+
+    const targetSlot = unmarkedSlot;
+
+    if (targetSlot) {
+      markAttendance(subject.id, status, {
+        time: `${targetSlot.startTime} - ${targetSlot.endTime}`,
+        room: targetSlot.room || subject.room,
+        note: `Timetable: ${targetSlot.day} (${targetSlot.startTime})`,
+      });
+    } else if (todaySlotsForSub.length > 0) {
+      // All scheduled slots for today are already marked
+      AppHaptics.warning();
+      Alert.alert(
+        'All Scheduled Classes Marked',
+        `All scheduled classes for "${subject.name}" today (${todayDay}) are already marked.\n\nTo log an additional unscheduled session, use "+ Extra Class" on the Home tab.`,
+        [{ text: 'OK' }]
+      );
+    } else {
+      markAttendance(subject.id, status, {
+        time: 'Quick Mark',
+        room: subject.room,
+      });
+    }
   };
 
   const handleDelete = () => {
@@ -174,8 +222,8 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
       name: editName.trim(),
       code: editCode.trim().toUpperCase() || subject.code,
       type: editType,
-      room: editRoom.trim() || undefined,
-      faculty: editFaculty.trim() || undefined,
+      room: editRoom.trim() || subject.room || 'A-204',
+      faculty: editFaculty.trim() || subject.faculty || '',
       targetRequirement: parseInt(editTarget) || 75,
       attended: Math.max(0, attNum),
       total: Math.max(attNum, totNum),
@@ -208,183 +256,226 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
   return (
     <View
       style={[
-        styles.rowContainer,
+        styles.cardContainer,
         {
           backgroundColor: colors.surface,
-          borderColor: isExpanded ? colors.borderHighlight : colors.borderSubtle,
-          shadowColor: isDark ? '#000000' : colors.accent,
-          shadowOffset: { width: 0, height: isExpanded ? 6 : 2 },
-          shadowOpacity: isDark ? 0.25 : 0.05,
-          shadowRadius: isExpanded ? 16 : 8,
-          elevation: isExpanded ? 5 : 2,
+          borderColor: isExpanded ? colors.navy : colors.border,
+          shadowColor: '#141820',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.04,
+          shadowRadius: 10,
+          elevation: 2,
         },
       ]}
     >
       <TouchableOpacity
-        style={styles.mainRow}
-        activeOpacity={0.7}
+        style={styles.cardHeaderArea}
+        activeOpacity={0.8}
         onPress={() => {
           AppHaptics.light();
           setIsExpanded(!isExpanded);
           onPressCard?.();
         }}
       >
-        {/* Index Number */}
-        <Text style={[styles.indexNumber, { color: colors.textTertiary }]}>{formattedIndex}</Text>
-
-        {/* Course Info & Micro-Bar */}
-        <View style={styles.centerInfo}>
-          <View style={styles.titleLine}>
-            <Text style={[styles.subjectName, { color: colors.textPrimary }]} numberOfLines={1}>
-              {subject.name.toUpperCase()}
-            </Text>
-            {subject.isLab2x && (
-              <Text style={[styles.labTag, { color: colors.gold, backgroundColor: colors.goldSubtle }]}>
-                LAB
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.badgeRow}>
-            <View style={[styles.codeBadge, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}>
-              <Text style={[styles.codeBadgeText, { color: colors.accent }]}>{subject.code}</Text>
+        {/* Top Header Row: Index + Name vs Percentage */}
+        <View style={styles.topIdentityRow}>
+          <View style={styles.leftIdentityBlock}>
+            <View style={styles.indexCodeRow}>
+              <Text style={[styles.indexNumberText, { color: colors.textTertiary }]}>{formattedIndex}</Text>
+              <View style={[styles.codeBadge, { backgroundColor: colors.softBlue, borderColor: colors.borderSubtle }]}>
+                <Text style={[styles.codeBadgeText, { color: colors.navy }]}>{subject.code}</Text>
+              </View>
+              {subject.isLab2x && (
+                <View style={[styles.labBadge, { backgroundColor: colors.amberSubtle, borderColor: colors.amber }]}>
+                  <Text style={[styles.labBadgeText, { color: colors.amber }]}>LAB 2X</Text>
+                </View>
+              )}
             </View>
-            <Text style={[styles.facultySub, { color: colors.textTertiary }]} numberOfLines={1}>
-              {subject.attended}/{subject.total} Classes {subject.room ? `· ${subject.room}` : ''}
-              {scheduledDays ? ` · ${scheduledDays}` : ''}
+
+            <Text style={[styles.subjectNameText, { color: colors.textPrimary }]} numberOfLines={1}>
+              {subject.name}
+            </Text>
+
+            <Text style={[styles.subjectMetaText, { color: colors.textSecondary }]}>
+              {subject.type} · Room {subject.room || 'A-204'}{subject.faculty ? ` · ${subject.faculty}` : ''}{scheduledDays ? ` · ${scheduledDays}` : ''}
             </Text>
           </View>
 
-          {/* Precision Micro-Bar */}
-          <View style={[styles.microTrack, { backgroundColor: colors.ringTrack }]}>
+          {/* Right Metrics Block */}
+          <View style={styles.rightMetricsBlock}>
+            <Text style={[styles.pctNumberText, { color: isUnstarted ? colors.textTertiary : isBelow ? colors.crimson : colors.textPrimary }]}>
+              {isUnstarted ? '—' : `${pct.toFixed(1)}%`}
+            </Text>
             <View
               style={[
-                styles.microFill,
+                styles.bufferBadgeCapsule,
                 {
-                  width: `${Math.min(100, pct)}%`,
-                  backgroundColor: risk.color,
+                  backgroundColor: isUnstarted
+                    ? colors.backgroundSecondary
+                    : buffer >= 0
+                    ? colors.emeraldSubtle
+                    : colors.crimsonSubtle,
                 },
               ]}
-            />
-            <View
-              style={[
-                styles.targetTick,
-                {
-                  left: `${target}%`,
-                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(17, 17, 19, 0.3)',
-                },
-              ]}
-            />
+            >
+              <Text
+                style={[
+                  styles.bufferBadgeText,
+                  {
+                    color: isUnstarted
+                      ? colors.textTertiary
+                      : buffer >= 0
+                      ? colors.emerald
+                      : colors.crimson,
+                  },
+                ]}
+              >
+                {isUnstarted ? 'New' : buffer >= 0 ? `+${buffer} safe` : `${buffer} deficit`}
+              </Text>
+            </View>
           </View>
         </View>
 
-        {/* Percentage & Buffer Number */}
-        <View style={styles.rightStats}>
-          <Text style={[styles.pctNumber, { color: isBelow ? colors.crimson : colors.textPrimary }]}>
-            {pct.toFixed(1)}%
-          </Text>
-          <View style={[styles.bufferBadgeCapsule, { backgroundColor: buffer >= 0 ? colors.emeraldSubtle : colors.crimsonSubtle }]}>
-            <Text style={[styles.bufferBadge, { color: buffer >= 0 ? colors.emerald : colors.crimson }]}>
-              {bufferDisplay}
+        {/* Full-Width "The Attenly Line" Progress Track */}
+        <View style={styles.trackSection}>
+          <View style={[styles.trackBase, { backgroundColor: colors.border }]}>
+            <Animated.View
+              style={[
+                styles.trackFill,
+                {
+                  width: animatedProgressWidth,
+                  backgroundColor: isUnstarted ? colors.border : risk.color,
+                },
+              ]}
+            />
+            {/* Target 75% Notch */}
+            <View
+              style={[
+                styles.trackTargetPin,
+                {
+                  left: `${target}%`,
+                  backgroundColor: colors.navy,
+                },
+              ]}
+            />
+          </View>
+
+          <View style={styles.trackLabelsRow}>
+            <Text style={[styles.trackSubLabel, { color: colors.textTertiary }]}>
+              {subject.attended} / {subject.total} attended
+            </Text>
+            <Text style={[styles.trackSubLabel, { color: colors.textSecondary }]}>
+              {target}% Target
             </Text>
           </View>
         </View>
       </TouchableOpacity>
 
-      {/* Expanded Quick Controls */}
-      {isExpanded && (
-        <View style={styles.expandedDrawer}>
-          {/* Row 1: Quick Mark Attendance */}
-          <View style={styles.drawerActions}>
-            <TouchableOpacity
-              style={[
-                styles.actionBtn,
-                {
-                  borderColor: isDark ? 'rgba(16, 185, 129, 0.25)' : 'rgba(46, 139, 99, 0.25)',
-                  backgroundColor: colors.emeraldSubtle,
-                },
-              ]}
-              activeOpacity={0.75}
-              onPress={() => handleMark('PRESENT')}
-            >
-              <Check size={14} color={colors.emerald} />
-              <Text style={[styles.actionBtnText, { color: colors.emerald }]}>+ Attended</Text>
-            </TouchableOpacity>
+      {/* 1-Tap Attendance & Quick Action Controls */}
+      <View style={[styles.actionSection, { borderTopColor: colors.border }]}>
+        {/* Row 1: Direct Attendance Logging */}
+        <View style={styles.actionButtonRow}>
+          <TouchableOpacity
+            style={[
+              styles.actionBtn,
+              {
+                backgroundColor: colors.emeraldSubtle,
+                borderColor: 'rgba(22, 115, 74, 0.25)',
+              },
+            ]}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={`Mark ${subject.name} present`}
+            onPress={() => handleMark('PRESENT')}
+          >
+            <Check size={13} color={colors.emerald} strokeWidth={2.5} />
+            <Text style={[styles.actionBtnText, { color: colors.emerald }]}>+ Attended</Text>
+          </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.actionBtn,
-                {
-                  borderColor: isDark ? 'rgba(239, 68, 68, 0.25)' : 'rgba(200, 92, 92, 0.25)',
-                  backgroundColor: colors.crimsonSubtle,
-                },
-              ]}
-              activeOpacity={0.75}
-              onPress={() => handleMark('ABSENT')}
-            >
-              <X size={14} color={colors.crimson} />
-              <Text style={[styles.actionBtnText, { color: colors.crimson }]}>− Missed</Text>
-            </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.actionBtn,
+              {
+                backgroundColor: colors.crimsonSubtle,
+                borderColor: 'rgba(180, 35, 24, 0.25)',
+              },
+            ]}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={`Mark ${subject.name} absent`}
+            onPress={() => handleMark('ABSENT')}
+          >
+            <X size={13} color={colors.crimson} strokeWidth={2.5} />
+            <Text style={[styles.actionBtnText, { color: colors.crimson }]}>− Missed</Text>
+          </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.actionBtn,
-                {
-                  borderColor: colors.borderSubtle,
-                  backgroundColor: colors.surfaceSubtle,
-                  flex: 0.8,
-                },
-              ]}
-              activeOpacity={0.75}
-              onPress={() => handleMark('CANCELLED')}
-            >
-              <Text style={[styles.actionBtnText, { color: colors.textTertiary }]}>No Class</Text>
-            </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.actionBtn,
+              {
+                backgroundColor: colors.backgroundSecondary,
+                borderColor: colors.border,
+                flex: 0.75,
+              },
+            ]}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={`Mark ${subject.name} class cancelled`}
+            onPress={() => handleMark('CANCELLED')}
+          >
+            <Text style={[styles.actionBtnText, { color: colors.textSecondary }]}>No Class</Text>
+          </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.actionBtn,
-                {
-                  borderColor: colors.borderSubtle,
-                  backgroundColor: colors.surfaceElevated,
-                  flex: 0.5,
-                },
-              ]}
-              activeOpacity={0.75}
-              onPress={() => {
-                AppHaptics.light();
-                if (isBelow && onOpenRecovery) {
-                  onOpenRecovery(subject);
-                } else if (onOpenSimulator) {
-                  onOpenSimulator(subject);
-                }
-              }}
-            >
-              {isBelow ? (
-                <ShieldAlert size={14} color={colors.crimson} />
-              ) : (
-                <SlidersHorizontal size={14} color={colors.textSecondary} />
-              )}
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={[
+              styles.actionBtnIconOnly,
+              {
+                backgroundColor: colors.surfaceSubtle,
+                borderColor: colors.border,
+              },
+            ]}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel={isBelow ? "Open Attendance Recovery Roadmap" : "Open What-If Simulator"}
+            onPress={() => {
+              AppHaptics.light();
+              if (isBelow && onOpenRecovery) {
+                onOpenRecovery(subject);
+              } else if (onOpenSimulator) {
+                onOpenSimulator(subject);
+              }
+            }}
+          >
+            {isBelow ? (
+              <ShieldAlert size={14} color={colors.crimson} />
+            ) : (
+              <SlidersHorizontal size={14} color={colors.textSecondary} />
+            )}
+          </TouchableOpacity>
+        </View>
 
-          {/* Row 2: Edit Course & Timetable / Logs / Delete */}
-          <View style={[styles.secondaryDrawerActions, { borderTopColor: colors.borderSubtle }]}>
+        {/* Row 2: Secondary Course Management Strip */}
+        {isExpanded && (
+          <View style={[styles.expandedDrawer, { borderTopColor: colors.border }]}>
             <TouchableOpacity
-              style={[styles.utilityBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
+              style={[styles.utilityBtn, { backgroundColor: colors.softBlue, borderColor: colors.borderSubtle }]}
               activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit course and schedule for ${subject.name}`}
               onPress={handleOpenEdit}
             >
-              <Edit3 size={12} color={colors.accent} />
-              <Text style={[styles.utilityBtnText, { color: colors.accent }]}>
+              <Edit3 size={12} color={colors.navy} />
+              <Text style={[styles.utilityBtnText, { color: colors.navy }]}>
                 Edit Course & Schedule ({subjectSlots.length})
               </Text>
             </TouchableOpacity>
 
             {onOpenPastHistory && (
               <TouchableOpacity
-                style={[styles.utilityBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle, flex: 0.45 }]}
+                style={[styles.utilityBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.border, flex: 0.4 }]}
                 activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={`View attendance logs for ${subject.name}`}
                 onPress={() => {
                   AppHaptics.light();
                   onOpenPastHistory(subject);
@@ -400,23 +491,34 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
                 styles.utilityBtn,
                 {
                   backgroundColor: colors.crimsonSubtle,
-                  borderColor: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(200, 92, 92, 0.2)',
-                  flex: 0.45,
+                  borderColor: 'rgba(180, 35, 24, 0.2)',
+                  flex: 0.4,
                 },
               ]}
               activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove course ${subject.name}`}
               onPress={handleDelete}
             >
               <Trash2 size={12} color={colors.crimson} />
               <Text style={[styles.utilityBtnText, { color: colors.crimson }]}>Remove</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      )}
+        )}
+      </View>
 
       {/* ─── FULL COURSE & TIMETABLE EDIT MODAL ──────────────────────── */}
-      <Modal visible={isEditModalOpen} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+      <Modal
+        visible={isEditModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsEditModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
             {/* Header */}
             <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
@@ -430,6 +532,8 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
               </View>
               <TouchableOpacity
                 style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
+                accessibilityRole="button"
+                accessibilityLabel="Close edit modal"
                 onPress={() => setIsEditModalOpen(false)}
               >
                 <X size={16} color={colors.textSecondary} />
@@ -623,7 +727,7 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
                       styles.removeCourseModalBtn,
                       {
                         backgroundColor: colors.crimsonSubtle,
-                        borderColor: isDark ? 'rgba(239, 68, 68, 0.25)' : 'rgba(200, 92, 92, 0.25)',
+                        borderColor: 'rgba(200, 92, 92, 0.25)',
                       },
                     ]}
                     activeOpacity={0.75}
@@ -670,6 +774,8 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
 
                         <TouchableOpacity
                           style={styles.deleteSlotBtn}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Delete timetable slot for ${slot.day} at ${slot.startTime}`}
                           onPress={() => handleDeleteSlot(slot.id)}
                         >
                           <Trash2 size={13} color={colors.crimson} />
@@ -788,119 +894,135 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  rowContainer: {
+  cardContainer: {
     borderWidth: 1,
     borderRadius: THEME.borderRadius.lg,
     marginHorizontal: THEME.spacing.xl,
-    marginBottom: THEME.spacing.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 2,
+    marginBottom: THEME.spacing.md,
+    overflow: 'hidden',
   },
-  mainRow: {
+  cardHeaderArea: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
+  },
+  topIdentityRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  leftIdentityBlock: {
+    flex: 1,
+  },
+  indexCodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    gap: 6,
+    marginBottom: 4,
   },
-  indexNumber: {
-    fontSize: 10.5,
+  indexNumberText: {
+    fontSize: 11,
     fontFamily: 'monospace',
     fontWeight: THEME.typography.weights.heavy,
-    width: 22,
-  },
-  centerInfo: {
-    flex: 1,
-    paddingHorizontal: 6,
-  },
-  titleLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  subjectName: {
-    fontSize: 13,
-    fontWeight: THEME.typography.weights.heavy,
-    letterSpacing: -0.2,
-    flexShrink: 1,
-  },
-  labTag: {
-    fontSize: 8.5,
-    fontWeight: THEME.typography.weights.heavy,
-    paddingHorizontal: 5,
-    paddingVertical: 1.5,
-    borderRadius: THEME.borderRadius.pill,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 2,
   },
   codeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: THEME.borderRadius.xs,
+    borderWidth: 1,
+  },
+  codeBadgeText: {
+    fontSize: 9.5,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: 0.2,
+  },
+  labBadge: {
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: THEME.borderRadius.xs,
     borderWidth: 1,
   },
-  codeBadgeText: {
-    fontSize: 9,
+  labBadgeText: {
+    fontSize: 8.5,
     fontWeight: THEME.typography.weights.heavy,
-    letterSpacing: 0.2,
   },
-  facultySub: {
-    fontSize: 10.5,
+  subjectNameText: {
+    fontSize: 16,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: -0.3,
+    marginBottom: 3,
+  },
+  subjectMetaText: {
+    fontSize: 11.5,
     fontWeight: THEME.typography.weights.medium,
-    flex: 1,
+    lineHeight: 16,
   },
-  microTrack: {
-    height: 3.5,
-    borderRadius: 2,
-    marginTop: 6,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  microFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  targetTick: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 1.5,
-  },
-  rightStats: {
+  rightMetricsBlock: {
     alignItems: 'flex-end',
-    minWidth: 60,
+    minWidth: 70,
   },
-  pctNumber: {
-    fontSize: 13.5,
+  pctNumberText: {
+    fontSize: 20,
     fontWeight: THEME.typography.weights.heavy,
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
   },
   bufferBadgeCapsule: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: THEME.borderRadius.pill,
-    marginTop: 2,
+    marginTop: 3,
   },
-  bufferBadge: {
+  bufferBadgeText: {
     fontSize: 9.5,
     fontWeight: THEME.typography.weights.heavy,
     letterSpacing: 0.1,
   },
-  expandedDrawer: {
-    paddingBottom: THEME.spacing.sm,
-    paddingTop: THEME.spacing.xs,
+  trackSection: {
+    marginTop: 12,
   },
-  drawerActions: {
+  trackBase: {
+    height: 4,
+    borderRadius: 2,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  trackFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  trackTargetPin: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 2,
+  },
+  trackLabelsRow: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  trackSubLabel: {
+    fontSize: 10,
+    fontWeight: THEME.typography.weights.medium,
+  },
+  actionSection: {
+    borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  actionButtonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   actionBtn: {
     flex: 1,
@@ -909,14 +1031,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     paddingVertical: 8,
-    borderRadius: THEME.borderRadius.sm,
+    borderRadius: THEME.borderRadius.md,
     borderWidth: 1,
+  },
+  actionBtnIconOnly: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: THEME.borderRadius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionBtnText: {
     fontSize: 11,
     fontWeight: THEME.typography.weights.bold,
   },
-  secondaryDrawerActions: {
+  expandedDrawer: {
     flexDirection: 'row',
     gap: 6,
     marginTop: 8,

@@ -17,16 +17,18 @@ export const AnimatedNumber: React.FC<AnimatedNumberProps> = ({
   style,
 }) => {
   const { colors } = useTheme();
-  const [displayValue, setDisplayValue] = useState(value);
-  const previousValueRef = useRef(value);
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const [displayValue, setDisplayValue] = useState(safeValue);
+  const previousValueRef = useRef(safeValue);
 
   useEffect(() => {
-    const start = previousValueRef.current;
-    const end = value;
+    const start = Number.isFinite(previousValueRef.current) ? previousValueRef.current : 0;
+    const end = Number.isFinite(value) ? value : 0;
     if (start === end) return;
 
-    const duration = 450; // ms
+    const duration = 400; // ms
     const startTime = Date.now();
+    let latestValue = start;
 
     const interval = setInterval(() => {
       const elapsed = Date.now() - startTime;
@@ -34,22 +36,28 @@ export const AnimatedNumber: React.FC<AnimatedNumberProps> = ({
       // Ease out cubic
       const ease = 1 - Math.pow(1 - progress, 3);
       const current = start + (end - start) * ease;
+      latestValue = Number.isFinite(current) ? current : end;
 
-      setDisplayValue(current);
+      setDisplayValue(latestValue);
 
       if (progress >= 1) {
         clearInterval(interval);
         previousValueRef.current = end;
         setDisplayValue(end);
       }
-    }, 16);
+    }, 24); // ~40 FPS for efficient JS thread performance
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      previousValueRef.current = latestValue;
+    };
   }, [value]);
+
+  const outputNumber = Number.isFinite(displayValue) ? displayValue.toFixed(decimals) : '0';
 
   return (
     <Text style={[styles.defaultStyle, { color: colors.textPrimary }, style]}>
-      {displayValue.toFixed(decimals)}
+      {outputNumber}
       {suffix}
     </Text>
   );

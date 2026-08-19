@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Modal,
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
@@ -18,6 +17,8 @@ import {
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 import { Analytics } from '../utils/analytics';
+import { classesCanMiss } from '../utils/ipuEngine';
+import { SmoothBottomSheet } from './SmoothBottomSheet';
 
 interface CanISkipModalProps {
   visible: boolean;
@@ -28,7 +29,7 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
   visible,
   onClose,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { todaySkipReport, todayDay } = useAttendance();
 
   useEffect(() => {
@@ -51,29 +52,28 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
     : colors.amber;
 
   return (
-    <Modal visible={visible} animationType="slide" transparent>
-      <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
-        <View style={[styles.modalSheet, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
-          {/* Header */}
-          <View style={[styles.headerRow, { borderBottomColor: colors.borderSubtle }]}>
-            <View>
-              <View style={styles.eyebrowRow}>
-                <Sparkles size={11} color={colors.indigo} />
-                <Text style={[styles.eyebrow, { color: colors.indigo }]}>ATTENDLY FORECAST · {todayDay}</Text>
-              </View>
-              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Can I skip today?</Text>
+    <SmoothBottomSheet visible={visible} onClose={onClose} maxHeight="88%" showHandle={true}>
+      <View style={styles.sheetInner}>
+        {/* Header */}
+        <View style={[styles.headerRow, { borderBottomColor: colors.borderSubtle }]}>
+          <View>
+            <View style={styles.eyebrowRow}>
+              <Sparkles size={11} color={colors.indigo} />
+              <Text style={[styles.eyebrow, { color: colors.indigo }]}>ATTENDLY FORECAST · {todayDay}</Text>
             </View>
-
-            <TouchableOpacity
-              style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
-              onPress={() => {
-                AppHaptics.light();
-                onClose();
-              }}
-            >
-              <X size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Can I skip today?</Text>
           </View>
+
+          <TouchableOpacity
+            style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
+            onPress={() => {
+              AppHaptics.light();
+              onClose();
+            }}
+          >
+            <X size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
             {/* 1. Verdict Hero Card */}
@@ -96,7 +96,7 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
 
             {/* 2. Safest Class to Miss Banner */}
             {todaySkipReport.safestSubject && (
-              <View style={[styles.safestBox, { backgroundColor: colors.surfaceSubtle, borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(46, 139, 99, 0.3)' }]}>
+              <View style={[styles.safestBox, { backgroundColor: colors.surfaceSubtle, borderColor: 'rgba(46, 139, 99, 0.3)' }]}>
                 <Text style={[styles.safestLabel, { color: colors.emerald }]}>SAFEST TO MISS TODAY</Text>
                 <View style={styles.safestRow}>
                   <View style={{ flex: 1 }}>
@@ -113,7 +113,11 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
                       {((todaySkipReport.safestSubject.attended / (todaySkipReport.safestSubject.total || 1)) * 100).toFixed(1)}%
                     </Text>
                     <Text style={[styles.safestBuffer, { color: colors.textTertiary }]}>
-                      +{Math.floor((todaySkipReport.safestSubject.attended - 0.75 * (todaySkipReport.safestSubject.total + 1)) / 0.75)} buffer
+                      +{classesCanMiss(
+                        todaySkipReport.safestSubject.attended,
+                        todaySkipReport.safestSubject.total + (todaySkipReport.safestSubject.isLab2x || todaySkipReport.safestSubject.type === 'Lab' ? 2 : 1),
+                        todaySkipReport.safestSubject.targetRequirement || 75
+                      )} buffer
                     </Text>
                   </View>
                 </View>
@@ -166,28 +170,30 @@ export const CanISkipModal: React.FC<CanISkipModalProps> = ({
             </View>
           </ScrollView>
         </View>
-      </View>
-    </Modal>
+    </SmoothBottomSheet>
   );
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
+  sheetInner: {
+    paddingTop: THEME.spacing.xs,
   },
-  modalSheet: {
-    borderTopLeftRadius: THEME.borderRadius.xxl,
-    borderTopRightRadius: THEME.borderRadius.xxl,
-    maxHeight: '88%',
-    borderWidth: 1,
+  sheetHandleContainer: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 2,
+  },
+  sheetHandleBar: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: THEME.spacing.xl,
-    paddingTop: THEME.spacing.xl,
+    paddingTop: THEME.spacing.sm,
     paddingBottom: THEME.spacing.md,
     borderBottomWidth: 1,
   },

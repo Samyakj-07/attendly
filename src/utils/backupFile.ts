@@ -2,6 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import { AppStorage } from './storage';
+import { getLocalDateString } from './ipuEngine';
 
 export const BackupManager = {
   /**
@@ -11,7 +12,7 @@ export const BackupManager = {
     try {
       const backupJson = await AppStorage.exportFullBackup();
       const sanitizedName = studentName.replace(/[^a-zA-Z0-9]/g, '_');
-      const dateStr = new Date().toISOString().split('T')[0];
+      const dateStr = getLocalDateString();
       const fileName = `${collegeShort}_Attendance_Backup_${sanitizedName}_${dateStr}.json`;
 
       if (Platform.OS === 'web') {
@@ -21,7 +22,9 @@ export const BackupManager = {
         a.href = url;
         a.download = fileName;
         a.click();
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+        }, 1000);
         return true;
       }
 
@@ -53,6 +56,9 @@ export const BackupManager = {
       if (!jsonString || !jsonString.trim()) {
         return { success: false, message: 'Please provide valid backup data.' };
       }
+      if (jsonString.length > 2 * 1024 * 1024) {
+        return { success: false, message: 'Backup payload exceeds maximum safe limit of 2MB.' };
+      }
       const success = await AppStorage.importFullBackup(jsonString.trim());
       if (success) {
         return { success: true, message: 'Semester backup restored successfully!' };
@@ -83,6 +89,9 @@ export const BackupManager = {
     try {
       if (!jsonString || !jsonString.trim()) {
         return { valid: false, error: 'Input is empty' };
+      }
+      if (jsonString.length > 2 * 1024 * 1024) {
+        return { valid: false, error: 'Payload exceeds 2MB limit' };
       }
       let cleaned = jsonString.trim();
       if (cleaned.startsWith('```')) {

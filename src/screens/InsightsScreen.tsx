@@ -5,16 +5,20 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
 import {
   predictInternalMarks,
   attendancePercentage,
+  getLocalDateString,
 } from '../utils/ipuEngine';
 import { AcademicExam } from '../types';
 import {
@@ -29,8 +33,8 @@ import {
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 
-export const InsightsScreen: React.FC = () => {
-  const { colors, isDark } = useTheme();
+export const InsightsScreen: React.FC = React.memo(() => {
+  const { colors } = useTheme();
   const {
     semesterHealth,
     overallPercentage,
@@ -46,13 +50,16 @@ export const InsightsScreen: React.FC = () => {
 
   const [forecastRate, setForecastRate] = useState<number>(90);
   const [historyFilter, setHistoryFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT' | 'CANCELLED'>('ALL');
+  const [visibleRecordCount, setVisibleRecordCount] = useState<number>(30);
 
   // Exam Modal State
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
   const [editingExamId, setEditingExamId] = useState<string | null>(null);
   const [examName, setExamName] = useState('');
   const [examType, setExamType] = useState<'Mid-Sem' | 'End-Sem' | 'Practical' | 'Internal' | 'Project'>('Mid-Sem');
-  const [examDate, setExamDate] = useState('2026-09-15');
+  const [examDate, setExamDate] = useState(() =>
+    getLocalDateString(new Date(Date.now() + 30 * 86400000))
+  );
 
   const marks = predictInternalMarks(overallPercentage);
   const target = profile.targetAttendance || 75;
@@ -84,7 +91,7 @@ export const InsightsScreen: React.FC = () => {
   const setQuickDateDaysFromNow = (days: number) => {
     AppHaptics.selection();
     const d = new Date(Date.now() + days * 86400000);
-    setExamDate(d.toISOString().split('T')[0]);
+    setExamDate(getLocalDateString(d));
   };
 
   const handleOpenAddExam = () => {
@@ -92,7 +99,7 @@ export const InsightsScreen: React.FC = () => {
     setEditingExamId(null);
     setExamName('');
     setExamType('Mid-Sem');
-    const defaultDate = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+    const defaultDate = getLocalDateString(new Date(Date.now() + 30 * 86400000));
     setExamDate(defaultDate);
     setIsExamModalOpen(true);
   };
@@ -130,9 +137,22 @@ export const InsightsScreen: React.FC = () => {
 
   const handleDeleteCurrentExam = async () => {
     if (!editingExamId) return;
-    AppHaptics.warning();
-    await deleteExam(editingExamId);
-    setIsExamModalOpen(false);
+    Alert.alert(
+      'Delete Exam?',
+      `Are you sure you want to delete "${examName}" from your schedule?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            AppHaptics.warning();
+            await deleteExam(editingExamId);
+            setIsExamModalOpen(false);
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -140,139 +160,154 @@ export const InsightsScreen: React.FC = () => {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Editorial Header */}
         <View style={styles.headerBox}>
-          <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>ACADEMIC INTELLIGENCE</Text>
+          <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>ACADEMIC OBSERVATORY</Text>
           <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Analytics.</Text>
+          <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
+            Your semester trajectory · {overallPercentage.toFixed(1)}% current aggregate
+          </Text>
         </View>
 
-        {/* 1. Financial-Grade Forecast Instrument */}
-        <View style={[styles.forecastCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          <View style={styles.forecastHeader}>
-            <TrendingUp size={14} color={colors.accent} />
-            <Text style={[styles.forecastTitle, { color: colors.textTertiary }]}>SEMESTER ATTENDANCE FORECAST</Text>
-          </View>
-
-          <View style={styles.forecastResultBox}>
-            <View>
-              <Text style={[styles.forecastResultPct, { color: colors.textPrimary }]}>
-                {projectedPct.toFixed(1)}%
-              </Text>
-              <Text style={[styles.forecastResultSub, { color: colors.textTertiary }]}>
-                Projected Final Attendance if you maintain {forecastRate}% future pace
-              </Text>
-            </View>
-
-            <View style={[styles.targetThresholdBadge, { borderColor: projectedPct >= target ? colors.emerald : colors.crimson }]}>
-              <Text style={[styles.targetThresholdText, { color: projectedPct >= target ? colors.emerald : colors.crimson }]}>
-                {projectedPct >= target ? 'ABOVE 75% TARGET' : 'BELOW 75% TARGET'}
-              </Text>
-            </View>
-          </View>
-
-          {/* Rate Selector Chips */}
-          <View style={styles.ratesRow}>
-            {[60, 70, 75, 80, 90, 100].map(r => (
-              <TouchableOpacity
-                key={`rate_${r}`}
-                style={[
-                  styles.rateChip,
-                  { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
-                  forecastRate === r && { backgroundColor: colors.accentSubtle, borderColor: colors.accent },
-                ]}
-                onPress={() => {
-                  AppHaptics.selection();
-                  setForecastRate(r);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.rateChipText,
-                    { color: colors.textSecondary },
-                    forecastRate === r && { color: colors.accent },
-                  ]}
-                >
-                  {r}%
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* 2. Semester Health Score */}
-        <View style={[styles.healthCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-          <View style={styles.healthTop}>
-            <View style={[styles.healthBadge, { backgroundColor: colors.surfaceSubtle }]}>
-              <HeartPulse size={12} color={healthColor} />
-              <Text style={[styles.healthBadgeText, { color: healthColor }]}>
-                {semesterHealth.status}
-              </Text>
-            </View>
-            <Text style={[styles.healthScoreText, { color: colors.textTertiary }]}>
-              <Text style={{ color: healthColor, fontSize: 26, fontWeight: '800' }}>
-                {semesterHealth.score}
-              </Text>{' '}
-              / 100
+        {subjects.length === 0 ? (
+          <View style={[styles.emptyAnalyticsCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+            <TrendingUp size={32} color={colors.textTertiary} />
+            <Text style={[styles.emptyAnalyticsTitle, { color: colors.textPrimary }]}>No Courses Registered Yet</Text>
+            <Text style={[styles.emptyAnalyticsSub, { color: colors.textTertiary }]}>
+              Add your registered academic courses on the Courses tab to activate your semester attendance forecast, health score, and internal marks projection.
             </Text>
           </View>
+        ) : (
+          <>
+            {/* 1. Financial-Grade Forecast Instrument */}
+            <View style={[styles.forecastCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              <View style={styles.forecastHeader}>
+                <TrendingUp size={14} color={colors.accent} />
+                <Text style={[styles.forecastTitle, { color: colors.textTertiary }]}>SEMESTER ATTENDANCE FORECAST</Text>
+              </View>
 
-          <Text style={[styles.healthSummary, { color: colors.textSecondary }]}>"{semesterHealth.summary}"</Text>
+              <View style={styles.forecastResultBox}>
+                <View>
+                  <Text style={[styles.forecastResultPct, { color: colors.textPrimary }]}>
+                    {projectedPct.toFixed(1)}%
+                  </Text>
+                  <Text style={[styles.forecastResultSub, { color: colors.textTertiary }]}>
+                    Projected Final Attendance if you maintain {forecastRate}% future pace
+                  </Text>
+                </View>
 
-          <View style={[styles.breakdownGrid, { backgroundColor: colors.surfaceSubtle }]}>
-            <View style={styles.breakdownItem}>
-              <Text style={[styles.breakdownVal, { color: colors.textPrimary }]}>+{semesterHealth.attendanceScore}</Text>
-              <Text style={[styles.breakdownLbl, { color: colors.textTertiary }]}>ATTENDANCE</Text>
-            </View>
-            <View style={[styles.breakdownDivider, { backgroundColor: colors.borderSubtle }]} />
-            <View style={styles.breakdownItem}>
-              <Text style={[styles.breakdownVal, { color: colors.textPrimary }]}>+{semesterHealth.bufferScore}</Text>
-              <Text style={[styles.breakdownLbl, { color: colors.textTertiary }]}>BUFFER</Text>
-            </View>
-            <View style={[styles.breakdownDivider, { backgroundColor: colors.borderSubtle }]} />
-            <View style={styles.breakdownItem}>
-              <Text style={[styles.breakdownVal, { color: colors.crimson }]}>
-                −{semesterHealth.riskPenalty}
-              </Text>
-              <Text style={[styles.breakdownLbl, { color: colors.textTertiary }]}>PENALTY</Text>
-            </View>
-          </View>
-        </View>
+                <View style={[styles.targetThresholdBadge, { borderColor: projectedPct >= target ? colors.emerald : colors.crimson }]}>
+                  <Text style={[styles.targetThresholdText, { color: projectedPct >= target ? colors.emerald : colors.crimson }]}>
+                    {projectedPct >= target ? 'ABOVE 75% TARGET' : 'BELOW 75% TARGET'}
+                  </Text>
+                </View>
+              </View>
 
-        {/* 3. Internal Assessment Marks */}
-        <View style={[styles.marksCard, { backgroundColor: colors.surface, borderColor: isDark ? 'rgba(245, 158, 11, 0.25)' : 'rgba(183, 121, 31, 0.25)' }]}>
-          <View style={styles.marksHeader}>
-            <Award size={16} color={colors.gold} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.marksTitle, { color: colors.textPrimary }]}>Internal Assessment Marks</Text>
-              <Text style={[styles.marksSubtitle, { color: colors.gold }]}>{marks.slab}</Text>
+              {/* Rate Selector Chips */}
+              <View style={styles.ratesRow}>
+                {[60, 70, 75, 80, 90, 100].map(r => (
+                  <TouchableOpacity
+                    key={`rate_${r}`}
+                    style={[
+                      styles.rateChip,
+                      { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                      forecastRate === r && { backgroundColor: colors.accentSubtle, borderColor: colors.accent },
+                    ]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      setForecastRate(r);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.rateChipText,
+                        { color: colors.textSecondary },
+                        forecastRate === r && { color: colors.accent },
+                      ]}
+                    >
+                      {r}%
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-            <Text style={[styles.marksScoreText, { color: colors.gold }]}>{marks.marks} / 5</Text>
-          </View>
 
-          <View style={styles.slabsBar}>
-            {[
-              { label: '≥90%', score: '5 Marks', active: overallPercentage >= 90 },
-              { label: '85–89%', score: '4 Marks', active: overallPercentage >= 85 && overallPercentage < 90 },
-              { label: '80–84%', score: '3 Marks', active: overallPercentage >= 80 && overallPercentage < 85 },
-              { label: '75–79%', score: '2 Marks', active: overallPercentage >= 75 && overallPercentage < 80 },
-              { label: '<75%', score: '0 Marks', active: overallPercentage < 75 },
-            ].map((sl, idx) => (
-              <View
-                key={`slab_${idx}`}
-                style={[
-                  styles.slabBox,
-                  { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
-                  sl.active && { borderColor: colors.gold, backgroundColor: colors.goldSubtle },
-                ]}
-              >
-                <Text style={[styles.slabLabel, { color: colors.textTertiary }, sl.active && { color: colors.gold }]}>
-                  {sl.label}
-                </Text>
-                <Text style={[styles.slabScore, { color: colors.textTertiary }, sl.active && { color: colors.gold, fontWeight: 'bold' }]}>
-                  {sl.score}
+            {/* 2. Semester Health Score */}
+            <View style={[styles.healthCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+              <View style={styles.healthTop}>
+                <View style={[styles.healthBadge, { backgroundColor: colors.surfaceSubtle }]}>
+                  <HeartPulse size={12} color={healthColor} />
+                  <Text style={[styles.healthBadgeText, { color: healthColor }]}>
+                    {semesterHealth.status}
+                  </Text>
+                </View>
+                <Text style={[styles.healthScoreText, { color: colors.textTertiary }]}>
+                  <Text style={{ color: healthColor, fontSize: 26, fontWeight: '800' }}>
+                    {semesterHealth.score}
+                  </Text>{' '}
+                  / 100
                 </Text>
               </View>
-            ))}
-          </View>
-        </View>
+
+              <Text style={[styles.healthSummary, { color: colors.textSecondary }]}>"{semesterHealth.summary}"</Text>
+
+              <View style={[styles.breakdownGrid, { backgroundColor: colors.surfaceSubtle }]}>
+                <View style={styles.breakdownItem}>
+                  <Text style={[styles.breakdownVal, { color: colors.textPrimary }]}>+{semesterHealth.attendanceScore}</Text>
+                  <Text style={[styles.breakdownLbl, { color: colors.textTertiary }]}>ATTENDANCE</Text>
+                </View>
+                <View style={[styles.breakdownDivider, { backgroundColor: colors.borderSubtle }]} />
+                <View style={styles.breakdownItem}>
+                  <Text style={[styles.breakdownVal, { color: colors.textPrimary }]}>+{semesterHealth.bufferScore}</Text>
+                  <Text style={[styles.breakdownLbl, { color: colors.textTertiary }]}>BUFFER</Text>
+                </View>
+                <View style={[styles.breakdownDivider, { backgroundColor: colors.borderSubtle }]} />
+                <View style={styles.breakdownItem}>
+                  <Text style={[styles.breakdownVal, { color: colors.crimson }]}>
+                    −{semesterHealth.riskPenalty}
+                  </Text>
+                  <Text style={[styles.breakdownLbl, { color: colors.textTertiary }]}>PENALTY</Text>
+                </View>
+              </View>
+            </View>
+
+            {/* 3. Internal Assessment Marks */}
+            <View style={[styles.marksCard, { backgroundColor: colors.surface, borderColor: 'rgba(183, 121, 31, 0.25)' }]}>
+              <View style={styles.marksHeader}>
+                <Award size={16} color={colors.gold} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.marksTitle, { color: colors.textPrimary }]}>Internal Assessment Marks</Text>
+                  <Text style={[styles.marksSubtitle, { color: colors.gold }]}>{marks.slab}</Text>
+                </View>
+                <Text style={[styles.marksScoreText, { color: colors.gold }]}>{marks.marks} / 5</Text>
+              </View>
+
+              <View style={styles.slabsBar}>
+                {[
+                  { label: '≥90%', score: '5 Marks', active: overallPercentage >= 90 },
+                  { label: '85–89%', score: '4 Marks', active: overallPercentage >= 85 && overallPercentage < 90 },
+                  { label: '80–84%', score: '3 Marks', active: overallPercentage >= 80 && overallPercentage < 85 },
+                  { label: '75–79%', score: '2 Marks', active: overallPercentage >= 75 && overallPercentage < 80 },
+                  { label: '<75%', score: '0 Marks', active: overallPercentage < 75 },
+                ].map((sl, idx) => (
+                  <View
+                    key={`slab_${idx}`}
+                    style={[
+                      styles.slabBox,
+                      { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                      sl.active && { borderColor: colors.gold, backgroundColor: colors.goldSubtle },
+                    ]}
+                  >
+                    <Text style={[styles.slabLabel, { color: colors.textTertiary }, sl.active && { color: colors.gold }]}>
+                      {sl.label}
+                    </Text>
+                    <Text style={[styles.slabScore, { color: colors.textTertiary }, sl.active && { color: colors.gold, fontWeight: 'bold' }]}>
+                      {sl.score}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </>
+        )}
 
         {/* 4. Upcoming Exams & Deadlines */}
         <View style={[styles.examsCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
@@ -293,13 +328,18 @@ export const InsightsScreen: React.FC = () => {
           </View>
 
           {exams.map(exam => {
-            const examDateObj = new Date(exam.date);
-            const diffDays = Math.ceil((examDateObj.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            const [ey, em, ed] = exam.date.split('-').map(Number);
+            const examLocalDate = new Date(ey, (em || 1) - 1, ed || 1, 0, 0, 0, 0);
+            const now = new Date();
+            const todayLocalDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+            const diffDays = Math.round((examLocalDate.getTime() - todayLocalDate.getTime()) / (1000 * 60 * 60 * 24));
             return (
               <TouchableOpacity
                 key={exam.id}
                 style={[styles.examItem, { borderBottomColor: colors.borderSubtle }]}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${exam.name}, ${exam.type}, ${exam.date}, ${diffDays >= 0 ? diffDays : 0} days remaining`}
                 onPress={() => handleOpenEditExam(exam)}
               >
                 <View style={{ flex: 1, marginRight: 8 }}>
@@ -311,9 +351,11 @@ export const InsightsScreen: React.FC = () => {
                   </Text>
                 </View>
 
-                <View style={[styles.countdownBadge, { backgroundColor: colors.surfaceSubtle }]}>
-                  <Text style={[styles.countdownNumber, { color: colors.accent }]}>{diffDays > 0 ? diffDays : 0}</Text>
-                  <Text style={[styles.countdownLabel, { color: colors.textTertiary }]}>DAYS</Text>
+                <View style={[styles.countdownBadge, { backgroundColor: diffDays === 0 ? colors.amberSubtle : colors.surfaceSubtle }]}>
+                  <Text style={[styles.countdownNumber, { color: diffDays === 0 ? colors.amber : diffDays > 0 ? colors.accent : colors.textTertiary }]}>
+                    {diffDays === 0 ? 'TODAY' : diffDays > 0 ? diffDays : 'DONE'}
+                  </Text>
+                  {diffDays > 0 && <Text style={[styles.countdownLabel, { color: colors.textTertiary }]}>DAYS</Text>}
                 </View>
               </TouchableOpacity>
             );
@@ -354,44 +396,101 @@ export const InsightsScreen: React.FC = () => {
             ))}
           </ScrollView>
 
-          {filteredRecords.map(rec => {
-            const statusColor =
-              rec.status === 'PRESENT'
-                ? colors.emerald
-                : rec.status === 'ABSENT'
-                ? colors.crimson
-                : rec.status === 'OD'
-                ? colors.accent
-                : colors.textTertiary;
+          {filteredRecords.length === 0 ? (
+            <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: colors.textTertiary }}>
+                No {historyFilter !== 'ALL' ? historyFilter.toLowerCase() : ''} records logged yet.
+              </Text>
+            </View>
+          ) : (
+            filteredRecords.slice(0, visibleRecordCount).map(rec => {
+              const isBaseline = rec.slotTime === 'Initial Baseline';
+              const statusColor =
+                rec.status === 'PRESENT'
+                  ? colors.emerald
+                  : rec.status === 'ABSENT'
+                  ? colors.crimson
+                  : rec.status === 'OD'
+                  ? colors.accent
+                  : colors.textTertiary;
 
-            return (
-              <View key={rec.id} style={[styles.historyCard, { borderBottomColor: colors.borderSubtle }]}>
-                <View style={styles.historyLeft}>
-                  <Text style={[styles.historyDate, { color: colors.textTertiary }]}>{rec.date}</Text>
-                  <Text style={[styles.historySubject, { color: colors.textPrimary }]}>{rec.subjectName}</Text>
-                </View>
+              return (
+                <View key={rec.id} style={[styles.historyCard, { borderBottomColor: colors.borderSubtle }]}>
+                  <View style={styles.historyLeft}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.historyDate, { color: colors.textTertiary }]}>{rec.date}</Text>
+                      {rec.slotTime && (
+                        <Text style={[styles.historySlotTime, { color: isBaseline ? colors.accent : colors.textTertiary }]}>
+                          · {rec.slotTime}
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={[styles.historySubject, { color: colors.textPrimary }]}>{rec.subjectName}</Text>
+                    {rec.note && isBaseline && (
+                      <Text style={[styles.historyNote, { color: colors.textTertiary }]}>{rec.note}</Text>
+                    )}
+                  </View>
 
-                <View style={styles.historyRight}>
-                  <Text style={[styles.statusTagText, { color: statusColor }]}>{rec.status}</Text>
-                  <TouchableOpacity
-                    style={styles.deleteRecordBtn}
-                    onPress={() => {
-                      AppHaptics.light();
-                      deleteAttendanceRecord(rec.id);
-                    }}
-                  >
-                    <Trash2 size={12} color={colors.textTertiary} />
-                  </TouchableOpacity>
+                  <View style={styles.historyRight}>
+                    <Text style={[styles.statusTagText, { color: statusColor }]}>{rec.status}</Text>
+                    <TouchableOpacity
+                      style={styles.deleteRecordBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${rec.status} record for ${rec.subjectName} on ${rec.date}`}
+                      onPress={() => {
+                        Alert.alert(
+                          'Delete Attendance Record?',
+                          `Delete ${rec.status} record for ${rec.subjectName} on ${rec.date}?`,
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: () => {
+                                AppHaptics.light();
+                                deleteAttendanceRecord(rec.id);
+                              },
+                            },
+                          ]
+                        );
+                      }}
+                    >
+                      <Trash2 size={12} color={colors.textTertiary} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            );
-          })}
+              );
+            })
+          )}
+
+          {filteredRecords.length > visibleRecordCount && (
+            <TouchableOpacity
+              style={[styles.loadMoreBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
+              onPress={() => {
+                AppHaptics.light();
+                setVisibleRecordCount(prev => prev + 30);
+              }}
+            >
+              <Text style={[styles.loadMoreText, { color: colors.textSecondary }]}>
+                + Load More Records ({filteredRecords.length - visibleRecordCount} remaining)
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 
       {/* Edit / Add Exam Date Modal */}
-      <Modal visible={isExamModalOpen} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+      <Modal
+        visible={isExamModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsExamModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
             <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
               <Text style={[styles.modalSheetTitle, { color: colors.textPrimary }]}>
@@ -452,6 +551,8 @@ export const InsightsScreen: React.FC = () => {
                 <TouchableOpacity
                   style={styles.deleteExamBtn}
                   activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete this academic exam"
                   onPress={handleDeleteCurrentExam}
                 >
                   <Trash2 size={14} color={colors.crimson} />
@@ -461,10 +562,11 @@ export const InsightsScreen: React.FC = () => {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
-};
+});
 
 const styles = StyleSheet.create({
   safeContainer: {
@@ -488,6 +590,11 @@ const styles = StyleSheet.create({
     fontWeight: THEME.typography.weights.heavy,
     letterSpacing: THEME.typography.letterSpacing.tighter,
     lineHeight: 38,
+  },
+  screenSubtitle: {
+    fontSize: THEME.typography.sizes.xs,
+    marginTop: 2,
+    fontWeight: THEME.typography.weights.medium,
   },
   forecastCard: {
     borderRadius: THEME.borderRadius.xl,
@@ -602,8 +709,8 @@ const styles = StyleSheet.create({
     fontWeight: THEME.typography.weights.heavy,
   },
   breakdownLbl: {
-    fontSize: 8,
-    marginTop: 1,
+    fontSize: 9.5,
+    marginTop: 2,
     letterSpacing: 0.6,
   },
   breakdownDivider: {
@@ -636,23 +743,23 @@ const styles = StyleSheet.create({
   },
   slabsBar: {
     flexDirection: 'row',
-    gap: 3,
+    gap: 4,
   },
   slabBox: {
     flex: 1,
-    borderRadius: 4,
-    paddingVertical: 5,
+    borderRadius: 6,
+    paddingVertical: 6,
     alignItems: 'center',
     borderWidth: 1,
   },
   slabBoxActive: {},
   slabLabel: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: THEME.typography.weights.bold,
   },
   slabLabelActive: {},
   slabScore: {
-    fontSize: 7,
+    fontSize: 8.5,
     marginTop: 1,
   },
   slabScoreActive: {},
@@ -765,6 +872,15 @@ const styles = StyleSheet.create({
     fontWeight: THEME.typography.weights.bold,
     marginTop: 1,
   },
+  historySlotTime: {
+    fontSize: 9,
+    fontWeight: THEME.typography.weights.medium,
+  },
+  historyNote: {
+    fontSize: 9.5,
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
   historyRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -776,6 +892,18 @@ const styles = StyleSheet.create({
   },
   deleteRecordBtn: {
     padding: 4,
+  },
+  loadMoreBtn: {
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: THEME.borderRadius.md,
+    borderWidth: 1,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  loadMoreText: {
+    fontSize: 10.5,
+    fontWeight: THEME.typography.weights.bold,
   },
   modalOverlay: {
     flex: 1,
@@ -856,5 +984,26 @@ const styles = StyleSheet.create({
   deleteExamBtnText: {
     fontSize: 11,
     fontWeight: THEME.typography.weights.bold,
+  },
+  emptyAnalyticsCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: THEME.spacing.xxl,
+    marginHorizontal: THEME.spacing.xl,
+    marginTop: THEME.spacing.lg,
+    borderRadius: THEME.borderRadius.xl,
+    borderWidth: 1,
+    gap: 8,
+  },
+  emptyAnalyticsTitle: {
+    fontSize: THEME.typography.sizes.md,
+    fontWeight: THEME.typography.weights.heavy,
+    marginTop: 4,
+  },
+  emptyAnalyticsSub: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 300,
   },
 });

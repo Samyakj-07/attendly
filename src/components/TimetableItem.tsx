@@ -1,12 +1,19 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { TimetableSlot, Subject, AttendanceStatus } from '../types';
 import { useAttendance } from '../context/AttendanceContext';
-import { attendancePercentage, subjectRiskLevel } from '../utils/ipuEngine';
+import {
+  attendancePercentage,
+  subjectRiskLevel,
+  timeToMinutes,
+  isSlotMatchingRecord,
+  getLocalDateString,
+} from '../utils/ipuEngine';
 import { Check, X, ShieldAlert, Sparkles, Clock, Calendar } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
+import { MOTION } from '../utils/motion';
 
 interface TimetableItemProps {
   slot: TimetableSlot;
@@ -27,21 +34,16 @@ export const TimetableItem: React.FC<TimetableItemProps> = ({
   isToday,
   isFutureDay,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { markAttendance, editAttendanceRecord, records, profile } = useAttendance();
 
-  const todayIso = new Date().toISOString().split('T')[0];
+  const todayIso = getLocalDateString();
   const activeDateStr = targetDateStr || todayIso;
   const isCurrentDay = isToday !== undefined ? isToday : activeDateStr === todayIso;
   const isFuture = isFutureDay !== undefined ? isFutureDay : activeDateStr > todayIso;
 
-  // Check if this slot was already marked for this specific active date
-  const slotRecord = records.find(
-    r =>
-      r.subjectId === slot.subjectId &&
-      r.date === activeDateStr &&
-      (r.slotTime?.includes(slot.startTime) || r.note?.includes(slot.day))
-  );
+  // Pulse animation for ongoing class
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Determine if this class is happening right NOW (only applicable if viewing today)
   const isOngoingNow = (() => {
@@ -51,13 +53,42 @@ export const TimetableItem: React.FC<TimetableItemProps> = ({
     const currentMins = now.getMinutes();
     const currentTotalMins = currentHours * 60 + currentMins;
 
-    const [startH, startM] = slot.startTime.split(':').map(Number);
-    const [endH, endM] = slot.endTime.split(':').map(Number);
-    const startTotal = (startH || 0) * 60 + (startM || 0);
-    const endTotal = (endH || 0) * 60 + (endM || 0);
+    const startTotal = timeToMinutes(slot.startTime);
+    const endTotal = timeToMinutes(slot.endTime);
 
     return currentTotalMins >= startTotal && currentTotalMins <= endTotal;
   })();
+
+  useEffect(() => {
+    if (isOngoingNow) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.3,
+            duration: 900,
+            easing: MOTION.easing.easeInOut,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 900,
+            easing: MOTION.easing.easeInOut,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+  }, [isOngoingNow]);
+
+  // Check if this slot was already marked for this specific active date and time
+  const slotRecord = records.find(
+    r =>
+      r.subjectId === slot.subjectId &&
+      r.date === activeDateStr &&
+      isSlotMatchingRecord(r.slotTime, r.note, slot.startTime, slot.endTime, slot.day)
+  );
 
   const target = subject?.targetRequirement || profile.targetAttendance || 75;
   const pct = subject ? attendancePercentage(subject.attended, subject.total) : 100;
@@ -81,7 +112,7 @@ export const TimetableItem: React.FC<TimetableItemProps> = ({
         date: activeDateStr,
         time: `${slot.startTime} - ${slot.endTime}`,
         room: slot.room,
-        note: `Timetable: ${slot.day}`,
+        note: `Timetable: ${slot.day} (${slot.startTime})`,
       });
     }
   };
@@ -122,28 +153,28 @@ export const TimetableItem: React.FC<TimetableItemProps> = ({
           styles.classContentBox,
           {
             backgroundColor: colors.surface,
-            borderColor: colors.borderSubtle,
+            borderColor: colors.border,
           },
           isOngoingNow && {
             borderColor: colors.borderHighlight,
-            backgroundColor: colors.surfaceElevated,
+            backgroundColor: colors.softBlue,
           },
           isMarkedPresent && {
-            borderColor: isDark ? 'rgba(34, 197, 94, 0.3)' : 'rgba(46, 139, 99, 0.3)',
+            borderColor: 'rgba(22, 115, 74, 0.25)',
           },
           isMarkedAbsent && {
-            borderColor: isDark ? 'rgba(248, 113, 113, 0.3)' : 'rgba(200, 92, 92, 0.3)',
+            borderColor: 'rgba(180, 35, 24, 0.25)',
           },
           isMarkedCancelled && {
-            borderColor: colors.borderHighlight,
+            borderColor: colors.borderSubtle,
             opacity: 0.85,
           },
         ]}
       >
         {isOngoingNow && (
-          <View style={[styles.nowBadge, { backgroundColor: colors.accentSubtle }]}>
-            <View style={[styles.pulseDot, { backgroundColor: colors.accent }]} />
-            <Text style={[styles.nowBadgeText, { color: colors.accent }]}>NOW</Text>
+          <View style={[styles.nowBadge, { backgroundColor: colors.softBlue }]}>
+            <Animated.View style={[styles.pulseDot, { backgroundColor: colors.accent, transform: [{ scale: pulseAnim }] }]} />
+            <Text style={[styles.nowBadgeText, { color: colors.navy }]}>NOW</Text>
           </View>
         )}
 
@@ -161,7 +192,7 @@ export const TimetableItem: React.FC<TimetableItemProps> = ({
             </View>
 
             <Text style={[styles.roomFacultyText, { color: colors.textTertiary }]}>
-              Room {slot.room || 'A-204'} · {slot.faculty || subject?.faculty || 'Faculty'}
+              Room {slot.room || 'A-204'}{slot.faculty || subject?.faculty ? ` · ${slot.faculty || subject?.faculty}` : ''}
             </Text>
           </View>
 
@@ -194,20 +225,23 @@ export const TimetableItem: React.FC<TimetableItemProps> = ({
               <TouchableOpacity
                 style={[
                   styles.btnMark,
-                  { backgroundColor: colors.emeraldSubtle },
+                  { backgroundColor: colors.emeraldSubtle, borderColor: 'rgba(22, 163, 74, 0.2)', borderWidth: 1 },
                   isMarkedPresent && {
                     backgroundColor: colors.emerald,
+                    borderColor: colors.emerald,
                   },
                 ]}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={`Mark ${slot.subjectName} as present`}
                 onPress={() => handleMark('PRESENT')}
               >
-                <Check size={13} color={isMarkedPresent ? colors.textInverse : colors.emerald} />
+                <Check size={12} color={isMarkedPresent ? colors.textInverse : colors.emerald} />
                 <Text
                   style={[
                     styles.btnText,
                     { color: isMarkedPresent ? colors.textInverse : colors.emerald },
-                    isMarkedPresent && { fontWeight: '800' },
+                    isMarkedPresent && { fontWeight: '900' },
                   ]}
                 >
                   {isMarkedPresent ? 'Present ✓' : 'Present'}
@@ -217,20 +251,23 @@ export const TimetableItem: React.FC<TimetableItemProps> = ({
               <TouchableOpacity
                 style={[
                   styles.btnMark,
-                  { backgroundColor: colors.crimsonSubtle },
+                  { backgroundColor: colors.crimsonSubtle, borderColor: 'rgba(220, 38, 38, 0.2)', borderWidth: 1 },
                   isMarkedAbsent && {
                     backgroundColor: colors.crimson,
+                    borderColor: colors.crimson,
                   },
                 ]}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={`Mark ${slot.subjectName} as absent`}
                 onPress={() => handleMark('ABSENT')}
               >
-                <X size={13} color={isMarkedAbsent ? colors.textInverse : colors.crimson} />
+                <X size={12} color={isMarkedAbsent ? colors.textInverse : colors.crimson} />
                 <Text
                   style={[
                     styles.btnText,
                     { color: isMarkedAbsent ? colors.textInverse : colors.crimson },
-                    isMarkedAbsent && { fontWeight: '800' },
+                    isMarkedAbsent && { fontWeight: '900' },
                   ]}
                 >
                   {isMarkedAbsent ? 'Absent ✗' : 'Absent'}
@@ -240,21 +277,22 @@ export const TimetableItem: React.FC<TimetableItemProps> = ({
               <TouchableOpacity
                 style={[
                   styles.btnMark,
-                  { backgroundColor: colors.surfaceSubtle, flex: 0.8 },
+                  { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle, borderWidth: 1, flex: 0.8 },
                   isMarkedCancelled && {
                     backgroundColor: colors.surfaceElevated,
-                    borderColor: colors.borderHighlight,
-                    borderWidth: 1,
+                    borderColor: colors.textPrimary,
                   },
                 ]}
-                activeOpacity={0.7}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={`Mark ${slot.subjectName} as cancelled or no class`}
                 onPress={() => handleMark('CANCELLED')}
               >
                 <Text
                   style={[
                     styles.btnText,
                     { color: isMarkedCancelled ? colors.textPrimary : colors.textTertiary },
-                    isMarkedCancelled && { fontWeight: '800' },
+                    isMarkedCancelled && { fontWeight: '900' },
                   ]}
                 >
                   {isMarkedCancelled ? 'No Class ✓' : 'No Class'}

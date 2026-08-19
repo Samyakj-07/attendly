@@ -1,20 +1,23 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   TextInput,
   Modal,
   Image,
+  Switch,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const APP_LOGO = require('../../assets/icon.png');
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
-import { ThemeMode } from '../constants/themes';
 import { useAttendance } from '../context/AttendanceContext';
 import { generateIPUAttendancePDF } from '../utils/pdfReport';
 import { BackupManager } from '../utils/backupFile';
@@ -29,16 +32,13 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
-  Sun,
-  Moon,
-  Smartphone,
   Trash2,
   FileCode,
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 
-export const ProfileScreen: React.FC = () => {
-  const { colors, mode, setMode, isDark } = useTheme();
+export const ProfileScreen: React.FC = React.memo(() => {
+  const { colors } = useTheme();
   const {
     profile,
     subjects,
@@ -54,10 +54,14 @@ export const ProfileScreen: React.FC = () => {
   const [editRoll, setEditRoll] = useState(profile.rollNumber || '');
   const [editTarget, setEditTarget] = useState(profile.targetAttendance?.toString() || '75');
 
-  // Backup & Restore Modal State
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [restoreJsonText, setRestoreJsonText] = useState('');
   const [backupFeedback, setBackupFeedback] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+  const [isTelemetryEnabled, setIsTelemetryEnabled] = useState(true);
+
+  useEffect(() => {
+    Analytics.isTelemetryEnabled().then(val => setIsTelemetryEnabled(val));
+  }, []);
 
   const backupInspection = useMemo(() => {
     return BackupManager.inspectBackup(restoreJsonText);
@@ -98,6 +102,11 @@ export const ProfileScreen: React.FC = () => {
         status: 'success',
         message: 'Backup file generated! Save it to Google Drive or Files.',
       });
+    } else {
+      setBackupFeedback({
+        status: 'error',
+        message: 'Could not open system sharing sheet. Please check file storage permissions.',
+      });
     }
   };
 
@@ -130,20 +139,14 @@ export const ProfileScreen: React.FC = () => {
   const studentName = profile.name || 'Student';
   const collegeMeta = `${profile.college || 'Your College'} · ${profile.programme || 'B.Tech'} ${profile.branch || ''} · Semester ${profile.semester || 1} · ${profile.academicSession || '2026–27'}`;
 
-  const themeOptions: Array<{ mode: ThemeMode; label: string; icon: React.FC<any> }> = [
-    { mode: 'light', label: 'Light', icon: Sun },
-    { mode: 'dark', label: 'Dark', icon: Moon },
-    { mode: 'system', label: 'System', icon: Smartphone },
-  ];
-
   return (
     <SafeAreaView style={[styles.safeContainer, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Editorial Header */}
         <View style={styles.headerBox}>
-          <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>STUDENT IDENTITY</Text>
-          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>{studentName.toUpperCase()}</Text>
-          <Text style={[styles.screenSubtitle, { color: colors.textTertiary }]}>{collegeMeta}</Text>
+          <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>STUDENT COMMAND & PREFERENCES</Text>
+          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>{studentName}.</Text>
+          <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>{collegeMeta}</Text>
         </View>
 
         {/* 1. Academic Configuration Section */}
@@ -183,53 +186,7 @@ export const ProfileScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {/* 2. Appearance / Theme Selector Section */}
-        <View style={styles.sectionBlock}>
-          <Text style={[styles.sectionHeader, { color: colors.textTertiary }]}>APPEARANCE</Text>
-          <View style={[styles.themeToggleContainer, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-            {themeOptions.map(opt => {
-              const isActive = mode === opt.mode;
-              const IconComp = opt.icon;
-              return (
-                <TouchableOpacity
-                  key={opt.mode}
-                  style={[
-                    styles.themeOption,
-                    isActive && [
-                      styles.themeOptionActive,
-                      {
-                        backgroundColor: colors.surfaceElevated,
-                        borderColor: colors.borderHighlight,
-                      },
-                    ],
-                  ]}
-                  activeOpacity={0.75}
-                  onPress={() => {
-                    AppHaptics.selection();
-                    setMode(opt.mode);
-                    Analytics.track('theme_changed', { mode: opt.mode });
-                  }}
-                >
-                  <IconComp
-                    size={14}
-                    color={isActive ? colors.accent : colors.textTertiary}
-                  />
-                  <Text
-                    style={[
-                      styles.themeOptionText,
-                      { color: colors.textTertiary },
-                      isActive && { color: colors.textPrimary, fontWeight: 'bold' },
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-
-        {/* 3. Data Sovereignty & Vault Section */}
+        {/* 2. Data Sovereignty & Vault Section */}
         <View style={styles.sectionBlock}>
           <Text style={[styles.sectionHeader, { color: colors.textTertiary }]}>DATA VAULT (100% OFFLINE)</Text>
 
@@ -264,10 +221,45 @@ export const ProfileScreen: React.FC = () => {
             <ChevronRight size={14} color={colors.textTertiary} />
           </TouchableOpacity>
 
+          <View style={[styles.actionRow, { borderBottomColor: colors.borderSubtle }]}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={[styles.actionTitle, { color: colors.textPrimary }]}>Anonymous Analytics</Text>
+              <Text style={[styles.actionSub, { color: colors.textTertiary }]}>
+                {isTelemetryEnabled ? 'Help improve Attendly with aggregate crash & feature reports' : 'Telemetry completely disabled'}
+              </Text>
+            </View>
+            <Switch
+              value={isTelemetryEnabled}
+              onValueChange={async (newVal) => {
+                AppHaptics.selection();
+                setIsTelemetryEnabled(newVal);
+                await Analytics.setEnabled(newVal);
+              }}
+              trackColor={{ false: colors.surfaceSubtle, true: colors.accent }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+
           <TouchableOpacity
             style={[styles.actionRow, { borderBottomWidth: 0 }]}
             activeOpacity={0.7}
-            onPress={() => resetAllData()}
+            onPress={() => {
+              Alert.alert(
+                'Clear All Local Data?',
+                'This will erase all subjects, timetable slots, and attendance history on this device. Make sure you have exported a backup first.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Erase Everything',
+                    style: 'destructive',
+                    onPress: async () => {
+                      AppHaptics.warning();
+                      await resetAllData();
+                    },
+                  },
+                ]
+              );
+            }}
           >
             <View style={{ flex: 1 }}>
               <Text style={[styles.actionTitle, { color: colors.crimson }]}>
@@ -285,8 +277,19 @@ export const ProfileScreen: React.FC = () => {
           <View style={[styles.aboutCard, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
             <View style={styles.aboutTopRow}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Image source={APP_LOGO} style={{ width: 28, height: 28, borderRadius: 6 }} />
-                <Text style={[styles.aboutLogoText, { color: colors.textPrimary }]}>attendly</Text>
+                <Image
+                  source={APP_LOGO}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 6,
+                    borderWidth: 1,
+                    borderColor: colors.borderSubtle,
+                    backgroundColor: colors.surface,
+                    overflow: 'hidden',
+                  }}
+                />
+                <Text style={[styles.aboutLogoText, { color: colors.textPrimary }]}>Attendly</Text>
               </View>
               <View style={[styles.versionBadge, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderSubtle }]}>
                 <Text style={[styles.versionText, { color: colors.textTertiary }]}>v1.0.0</Text>
@@ -309,8 +312,17 @@ export const ProfileScreen: React.FC = () => {
       </ScrollView>
 
       {/* Backup Vault Modal */}
-      <Modal visible={isBackupModalOpen} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+      <Modal
+        visible={isBackupModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsBackupModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
             <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
               <Text style={[styles.modalSheetTitle, { color: colors.textPrimary }]}>Semester Backup Vault</Text>
@@ -330,8 +342,8 @@ export const ProfileScreen: React.FC = () => {
                     {
                       backgroundColor:
                         backupFeedback.status === 'success'
-                          ? (isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(46, 139, 99, 0.12)')
-                          : (isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(200, 92, 92, 0.12)'),
+                          ? 'rgba(46, 139, 99, 0.12)'
+                          : 'rgba(200, 92, 92, 0.12)',
                       borderColor:
                         backupFeedback.status === 'success'
                           ? colors.emerald
@@ -427,7 +439,7 @@ export const ProfileScreen: React.FC = () => {
                 {restoreJsonText.trim().length > 0 && (
                   <View style={{ marginTop: 8 }}>
                     {backupInspection.valid ? (
-                      <View style={[styles.inspectSuccessBox, { backgroundColor: colors.emeraldSubtle, borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(46, 139, 99, 0.3)' }]}>
+                      <View style={[styles.inspectSuccessBox, { backgroundColor: colors.emeraldSubtle, borderColor: 'rgba(46, 139, 99, 0.3)' }]}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                           <CheckCircle2 size={13} color={colors.emerald} />
                           <Text style={[styles.inspectSuccessTitle, { color: colors.emerald }]}>
@@ -441,7 +453,7 @@ export const ProfileScreen: React.FC = () => {
                         </Text>
                       </View>
                     ) : (
-                      <View style={[styles.inspectErrorBox, { backgroundColor: colors.crimsonSubtle, borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(200, 92, 92, 0.3)' }]}>
+                      <View style={[styles.inspectErrorBox, { backgroundColor: colors.crimsonSubtle, borderColor: 'rgba(200, 92, 92, 0.3)' }]}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                           <AlertCircle size={13} color={colors.crimson} />
                           <Text style={[styles.inspectErrorTitle, { color: colors.crimson }]}>
@@ -476,11 +488,21 @@ export const ProfileScreen: React.FC = () => {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Edit Profile Modal */}
-      <Modal visible={isEditProfileOpen} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+      <Modal
+        visible={isEditProfileOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsEditProfileOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
             <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
               <Text style={[styles.modalSheetTitle, { color: colors.textPrimary }]}>Edit Profile</Text>
@@ -540,10 +562,11 @@ export const ProfileScreen: React.FC = () => {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
-};
+});
 
 const styles = StyleSheet.create({
   safeContainer: {
@@ -598,32 +621,6 @@ const styles = StyleSheet.create({
   actionSub: {
     fontSize: 11,
     marginTop: 2,
-  },
-  themeToggleContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    padding: 6,
-    borderRadius: THEME.borderRadius.lg,
-    borderWidth: 1,
-    marginTop: 4,
-  },
-  themeOption: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    borderRadius: THEME.borderRadius.md,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  themeOptionActive: {
-    borderWidth: 1,
-  },
-  themeOptionText: {
-    fontSize: 11,
-    fontWeight: THEME.typography.weights.medium,
   },
   privacyNote: {
     flexDirection: 'row',

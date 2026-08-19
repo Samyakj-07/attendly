@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Modal,
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
@@ -19,6 +18,7 @@ import {
 import { X, ShieldAlert, CheckCircle2, Award, ArrowRight } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 import { Analytics } from '../utils/analytics';
+import { SmoothBottomSheet } from './SmoothBottomSheet';
 
 interface RecoveryModalProps {
   visible: boolean;
@@ -31,7 +31,7 @@ export const RecoveryModal: React.FC<RecoveryModalProps> = ({
   onClose,
   subject,
 }) => {
-  const { colors, shadows, isDark } = useTheme();
+  const { colors, shadows } = useTheme();
   const { profile } = useAttendance();
 
   useEffect(() => {
@@ -52,158 +52,164 @@ export const RecoveryModal: React.FC<RecoveryModalProps> = ({
   const roadmap = generateRecoveryRoadmap(subject.attended, subject.total, target);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
-        <View style={[styles.modalContainer, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
-          {/* Header */}
-          <View style={[styles.headerRow, { borderBottomColor: colors.border }]}>
-            <View style={{ flex: 1 }}>
-              <View style={[styles.badge, { backgroundColor: colors.crimsonSubtle }]}>
-                <ShieldAlert size={13} color={colors.crimson} />
-                <Text style={[styles.badgeText, { color: colors.crimson }]}>DETENTION ESCAPE PLAN</Text>
-              </View>
-              <Text style={[styles.titleText, { color: colors.textPrimary }]}>{subject.name}</Text>
-              <Text style={[styles.subtitleText, { color: colors.textTertiary }]}>
-                {subject.code} • Currently {currentPct.toFixed(1)}% • Target {target}%
-              </Text>
+    <SmoothBottomSheet visible={visible} onClose={onClose} maxHeight="85%" showHandle={true}>
+      <View style={styles.sheetInner}>
+        {/* Header */}
+        <View style={[styles.headerRow, { borderBottomColor: colors.border }]}>
+          <View style={{ flex: 1 }}>
+            <View style={[styles.badge, { backgroundColor: colors.crimsonSubtle }]}>
+              <ShieldAlert size={13} color={colors.crimson} />
+              <Text style={[styles.badgeText, { color: colors.crimson }]}>DETENTION ESCAPE PLAN</Text>
             </View>
-
-            <TouchableOpacity
-              style={[styles.closeBtn, { backgroundColor: colors.surfaceElevated }]}
-              onPress={() => {
-                AppHaptics.light();
-                onClose();
-              }}
-            >
-              <X size={20} color={colors.textSecondary} />
-            </TouchableOpacity>
+            <Text style={[styles.titleText, { color: colors.textPrimary }]}>{subject.name}</Text>
+            <Text style={[styles.subtitleText, { color: colors.textTertiary }]}>
+              {subject.code} • Currently {currentPct.toFixed(1)}% • Target {target}%
+            </Text>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            {/* Rescue Summary Card */}
-            <View style={[
+          <TouchableOpacity
+            style={[styles.closeBtn, { backgroundColor: colors.surfaceElevated }]}
+            onPress={() => {
+              AppHaptics.light();
+              onClose();
+            }}
+          >
+            <X size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          {/* Rescue Summary Card */}
+          <View
+            style={[
               styles.rescueCard,
               {
                 backgroundColor: colors.surface,
-                borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(200, 92, 92, 0.4)',
+                borderColor: 'rgba(200, 92, 92, 0.4)',
                 ...shadows.card,
               },
-            ]}>
-              <Text style={[styles.rescueHeading, { color: colors.crimson }]}>RECOVERY REQUIREMENT</Text>
-              <View style={styles.neededRow}>
-                <Text style={[styles.neededCount, { color: colors.textPrimary }]}>Attend Next {needed}</Text>
-                <Text style={[styles.neededSub, { color: colors.textSecondary }]}>consecutive lectures</Text>
-              </View>
-              <Text style={[styles.rescueExplanation, { color: colors.textSecondary }]}>
-                Attending the next {needed} consecutive classes without missing will elevate your
-                attendance to{' '}
-                <Text style={{ color: colors.emerald, fontWeight: '700' }}>
-                  {roadmap[roadmap.length - 1]?.projectedPct.toFixed(1)}%
-                </Text>
-                , clearing the minimum attendance threshold.
+            ]}
+          >
+            <Text style={[styles.rescueHeading, { color: colors.crimson }]}>RECOVERY REQUIREMENT</Text>
+            <View style={styles.neededRow}>
+              <Text style={[styles.neededCount, { color: colors.textPrimary }]}>
+                {Number.isFinite(needed) ? `Attend Next ${needed}` : '100% Unreachable'}
+              </Text>
+              <Text style={[styles.neededSub, { color: colors.textSecondary }]}>
+                {Number.isFinite(needed)
+                  ? 'consecutive lectures'
+                  : `(Missed ${subject.total - subject.attended} classes)`}
               </Text>
             </View>
+            <Text style={[styles.rescueExplanation, { color: colors.textSecondary }]}>
+              {Number.isFinite(needed) ? (
+                <>
+                  Attending the next {needed} consecutive classes without missing will elevate your
+                  attendance to{' '}
+                  <Text style={{ color: colors.emerald, fontWeight: '700' }}>
+                    {roadmap[roadmap.length - 1]?.projectedPct.toFixed(1)}%
+                  </Text>
+                  , clearing the minimum attendance threshold.
+                </>
+              ) : (
+                <>
+                  Because classes have already been missed this semester, reaching a 100% attendance rate is mathematically impossible. Attend all remaining classes to maximize your percentage.
+                </>
+              )}
+            </Text>
+          </View>
 
-            {/* Step by Step Timeline */}
-            <Text style={[styles.sectionHeading, { color: colors.textTertiary }]}>STEP-BY-STEP RECOVERY ROADMAP</Text>
+          {/* Step by Step Timeline */}
+          <Text style={[styles.sectionHeading, { color: colors.textTertiary }]}>STEP-BY-STEP RECOVERY ROADMAP</Text>
 
-            {roadmap.map((step, idx) => (
-              <View key={`recovery_step_${step.step}`} style={styles.stepItem}>
-                <View style={styles.stepPillar}>
-                  <View
-                    style={[
-                      styles.stepCircle,
-                      step.reachedTarget
-                        ? [styles.stepCircleSuccess, { backgroundColor: colors.emeraldSubtle, borderColor: colors.emerald }]
-                        : [styles.stepCircleActive, { backgroundColor: colors.surfaceElevated, borderColor: colors.gold }],
-                    ]}
-                  >
-                    {step.reachedTarget ? (
-                      <CheckCircle2 size={16} color={colors.emerald} />
-                    ) : (
-                      <Text style={[styles.stepNum, { color: colors.gold }]}>{step.step}</Text>
-                    )}
-                  </View>
-                  {idx < roadmap.length - 1 && <View style={[styles.stepLine, { backgroundColor: colors.border }]} />}
-                </View>
-
+          {roadmap.map((step, idx) => (
+            <View key={`recovery_step_${step.step}`} style={styles.stepItem}>
+              <View style={styles.stepPillar}>
                 <View
                   style={[
-                    styles.stepContentCard,
-                    { backgroundColor: colors.surface, borderColor: colors.border },
-                    step.reachedTarget && [
-                      styles.stepCardTargetReached,
-                      {
-                        borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : 'rgba(46, 139, 99, 0.4)',
-                        backgroundColor: isDark ? 'rgba(16, 185, 129, 0.05)' : 'rgba(46, 139, 99, 0.05)',
-                      },
-                    ],
+                    styles.stepCircle,
+                    step.reachedTarget
+                      ? [styles.stepCircleSuccess, { backgroundColor: colors.emeraldSubtle, borderColor: colors.emerald }]
+                      : [styles.stepCircleActive, { backgroundColor: colors.surfaceElevated, borderColor: colors.gold }],
                   ]}
                 >
-                  <View style={styles.stepHeader}>
-                    <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>Class +{step.step}</Text>
-                    <View style={styles.pctShift}>
-                      <Text style={[styles.ratioText, { color: colors.textTertiary }]}>
-                        {step.attendedCount} / {step.totalCount}
-                      </Text>
-                      <ArrowRight size={12} color={colors.textTertiary} />
-                      <Text
-                        style={[
-                          styles.pctTarget,
-                          {
-                            color: step.reachedTarget ? colors.emerald : colors.gold,
-                          },
-                        ]}
-                      >
-                        {step.projectedPct.toFixed(1)}%
-                      </Text>
-                    </View>
-                  </View>
-
                   {step.reachedTarget ? (
-                    <View style={styles.targetReachedBanner}>
-                      <Text style={[styles.targetReachedText, { color: colors.emerald }]}>
-                        🎉 Safe Zone Reached! ({target}% Criteria Satisfied)
-                      </Text>
-                    </View>
+                    <CheckCircle2 size={16} color={colors.emerald} />
                   ) : (
-                    <Text style={[styles.stepNote, { color: colors.textTertiary }]}>
-                      Need {needed - step.step} more lecture{needed - step.step > 1 ? 's' : ''} after this.
-                    </Text>
+                    <Text style={[styles.stepNum, { color: colors.gold }]}>{step.step}</Text>
                   )}
                 </View>
+                {idx < roadmap.length - 1 && <View style={[styles.stepLine, { backgroundColor: colors.border }]} />}
               </View>
-            ))}
 
-            {/* Medical / OD Note */}
-            <View style={[styles.odTipCard, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderHighlight }]}>
-              <Award size={18} color={colors.indigo} />
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.odTipTitle, { color: colors.indigo }]}>On-Duty / Medical Condonation</Text>
-                <Text style={[styles.odTipDesc, { color: colors.textSecondary }]}>
-                  If attending {needed} classes is difficult due to college fest, sports, or medical
-                  leave, claim On-Duty (OD) condonation per your university guidelines.
-                </Text>
+              <View
+                style={[
+                  styles.stepContentCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  step.reachedTarget && [
+                    styles.stepCardTargetReached,
+                    {
+                      borderColor: 'rgba(46, 139, 99, 0.4)',
+                      backgroundColor: 'rgba(46, 139, 99, 0.05)',
+                    },
+                  ],
+                ]}
+              >
+                <View style={styles.stepHeader}>
+                  <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>Class +{step.step}</Text>
+                  <View style={styles.pctShift}>
+                    <Text style={[styles.ratioText, { color: colors.textTertiary }]}>
+                      {step.attendedCount} / {step.totalCount}
+                    </Text>
+                    <ArrowRight size={12} color={colors.textTertiary} />
+                    <Text
+                      style={[
+                        styles.pctTarget,
+                        {
+                          color: step.reachedTarget ? colors.emerald : colors.gold,
+                        },
+                      ]}
+                    >
+                      {step.projectedPct.toFixed(1)}%
+                    </Text>
+                  </View>
+                </View>
+
+                {step.reachedTarget ? (
+                  <View style={styles.targetReachedBanner}>
+                    <Text style={[styles.targetReachedText, { color: colors.emerald }]}>
+                      🎉 Safe Zone Reached! ({target}% Criteria Satisfied)
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.stepNote, { color: colors.textTertiary }]}>
+                    Need {needed - step.step} more lecture{needed - step.step > 1 ? 's' : ''} after this.
+                  </Text>
+                )}
               </View>
             </View>
-          </ScrollView>
-        </View>
+          ))}
+
+          {/* Medical / OD Note */}
+          <View style={[styles.odTipCard, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderHighlight }]}>
+            <Award size={18} color={colors.indigo} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.odTipTitle, { color: colors.indigo }]}>On-Duty / Medical Condonation</Text>
+              <Text style={[styles.odTipDesc, { color: colors.textSecondary }]}>
+                If attending {needed} classes is difficult due to college fest, sports, or medical
+                leave, claim On-Duty (OD) condonation per your university guidelines.
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
       </View>
-    </Modal>
+    </SmoothBottomSheet>
   );
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    borderTopLeftRadius: THEME.borderRadius.xxl,
-    borderTopRightRadius: THEME.borderRadius.xxl,
-    maxHeight: '85%',
-    borderWidth: 1,
-    paddingTop: THEME.spacing.lg,
+  sheetInner: {
+    paddingTop: THEME.spacing.xs,
   },
   headerRow: {
     flexDirection: 'row',

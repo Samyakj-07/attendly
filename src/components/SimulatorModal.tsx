@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Modal,
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
@@ -19,6 +18,7 @@ import {
 import { X, Sliders, TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
 import { Analytics } from '../utils/analytics';
+import { SmoothBottomSheet } from './SmoothBottomSheet';
 
 interface SimulatorModalProps {
   visible: boolean;
@@ -31,10 +31,9 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
   onClose,
   subject,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const { totalAttended, totalClasses, profile } = useAttendance();
   const [mode, setMode] = useState<'MISS' | 'ATTEND'>('MISS');
-  const [selectedCount, setSelectedCount] = useState<number>(3);
 
   useEffect(() => {
     if (visible) {
@@ -77,191 +76,181 @@ export const SimulatorModal: React.FC<SimulatorModalProps> = ({
   });
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
-        <View style={[styles.modalContainer, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
-          {/* Header */}
-          <View style={[styles.headerRow, { borderBottomColor: colors.border }]}>
-            <View style={{ flex: 1 }}>
-              <View style={[styles.badge, { backgroundColor: colors.accentSubtle }]}>
-                <Sliders size={13} color={colors.accent} />
-                <Text style={[styles.badgeText, { color: colors.accent }]}>EXACT CLASS SIMULATOR</Text>
-              </View>
-              <Text style={[styles.titleText, { color: colors.textPrimary }]}>{title}</Text>
-              <Text style={[styles.subtitleText, { color: colors.textTertiary }]}>
-                Current: <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>{currentPct}%</Text> • Target: {target}%
-              </Text>
+    <SmoothBottomSheet visible={visible} onClose={onClose} maxHeight="85%" showHandle={true}>
+      <View style={styles.sheetInner}>
+        {/* Header */}
+        <View style={[styles.headerRow, { borderBottomColor: colors.border }]}>
+          <View style={{ flex: 1 }}>
+            <View style={[styles.badge, { backgroundColor: colors.accentSubtle }]}>
+              <Sliders size={13} color={colors.accent} />
+              <Text style={[styles.badgeText, { color: colors.accent }]}>EXACT CLASS SIMULATOR</Text>
             </View>
-
-            <TouchableOpacity
-              style={[styles.closeBtn, { backgroundColor: colors.surfaceElevated }]}
-              onPress={() => {
-                AppHaptics.light();
-                onClose();
-              }}
-            >
-              <X size={20} color={colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Mode Tabs */}
-          <View style={styles.modeTabsRow}>
-            <TouchableOpacity
-              style={[
-                styles.modeTab,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-                mode === 'MISS' && { backgroundColor: colors.crimsonSubtle, borderColor: colors.crimson },
-              ]}
-              activeOpacity={0.7}
-              onPress={() => {
-                AppHaptics.light();
-                setMode('MISS');
-              }}
-            >
-              <TrendingDown
-                size={16}
-                color={mode === 'MISS' ? colors.crimson : colors.textTertiary}
-              />
-              <Text
-                style={[
-                  styles.modeTabText,
-                  { color: mode === 'MISS' ? colors.crimson : colors.textTertiary },
-                ]}
-              >
-                If I Miss Classes
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.modeTab,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-                mode === 'ATTEND' && { backgroundColor: colors.emeraldSubtle, borderColor: colors.emerald },
-              ]}
-              activeOpacity={0.7}
-              onPress={() => {
-                AppHaptics.light();
-                setMode('ATTEND');
-              }}
-            >
-              <TrendingUp
-                size={16}
-                color={mode === 'ATTEND' ? colors.emerald : colors.textTertiary}
-              />
-              <Text
-                style={[
-                  styles.modeTabText,
-                  { color: mode === 'ATTEND' ? colors.emerald : colors.textTertiary },
-                ]}
-              >
-                If I Attend Consecutively
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Ladder Simulation List */}
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            <Text style={[styles.sectionHeading, { color: colors.textTertiary }]}>
-              {mode === 'MISS' ? 'PROJECTED ATTENDANCE DROP LADDER' : 'PROJECTED RECOVERY TRAJECTORY'}
+            <Text style={[styles.titleText, { color: colors.textPrimary }]}>{title}</Text>
+            <Text style={[styles.subtitleText, { color: colors.textTertiary }]}>
+              Current: <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>{currentPct}%</Text> • Target: {target}%
             </Text>
+          </View>
 
-            {ladderSteps.map((step, idx) => {
-              const showThresholdLine =
-                mode === 'MISS' &&
-                step.isBelow &&
-                (idx === 0 || !ladderSteps[idx - 1].isBelow);
+          <TouchableOpacity
+            style={[styles.closeBtn, { backgroundColor: colors.surfaceElevated }]}
+            onPress={() => {
+              AppHaptics.light();
+              onClose();
+            }}
+          >
+            <X size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
 
-              return (
-                <React.Fragment key={`step_${step.count}`}>
-                  {showThresholdLine && (
-                    <View style={[styles.thresholdMarker, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(200, 92, 92, 0.15)', borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(200, 92, 92, 0.4)' }]}>
-                      <AlertTriangle size={14} color={colors.crimson} />
-                      <Text style={[styles.thresholdText, { color: colors.crimson }]}>
-                        ⚠️ {target}% Minimum Threshold Crossed Here
-                      </Text>
-                    </View>
-                  )}
+        {/* Mode Tabs */}
+        <View style={styles.modeTabsRow}>
+          <TouchableOpacity
+            style={[
+              styles.modeTab,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+              mode === 'MISS' && { backgroundColor: colors.crimsonSubtle, borderColor: colors.crimson },
+            ]}
+            activeOpacity={0.7}
+            onPress={() => {
+              AppHaptics.light();
+              setMode('MISS');
+            }}
+          >
+            <TrendingDown
+              size={16}
+              color={mode === 'MISS' ? colors.crimson : colors.textTertiary}
+            />
+            <Text
+              style={[
+                styles.modeTabText,
+                { color: mode === 'MISS' ? colors.crimson : colors.textTertiary },
+              ]}
+            >
+              If I Miss Classes
+            </Text>
+          </TouchableOpacity>
 
-                  <View
-                    style={[
-                      styles.ladderCard,
-                      { backgroundColor: colors.surface, borderColor: colors.border },
-                      step.isBelow && mode === 'MISS' && { borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(200, 92, 92, 0.3)' },
-                    ]}
-                  >
-                    <View style={styles.ladderLeft}>
-                      <View
-                        style={[
-                          styles.stepBubble,
-                          {
-                            backgroundColor:
-                              mode === 'MISS'
-                                ? (isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(200, 92, 92, 0.15)')
-                                : (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(46, 139, 99, 0.15)'),
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.stepBubbleText,
-                            { color: mode === 'MISS' ? colors.crimson : colors.emerald },
-                          ]}
-                        >
-                          {step.count}
-                        </Text>
-                      </View>
+          <TouchableOpacity
+            style={[
+              styles.modeTab,
+              { backgroundColor: colors.surface, borderColor: colors.border },
+              mode === 'ATTEND' && { backgroundColor: colors.emeraldSubtle, borderColor: colors.emerald },
+            ]}
+            activeOpacity={0.7}
+            onPress={() => {
+              AppHaptics.light();
+              setMode('ATTEND');
+            }}
+          >
+            <TrendingUp
+              size={16}
+              color={mode === 'ATTEND' ? colors.emerald : colors.textTertiary}
+            />
+            <Text
+              style={[
+                styles.modeTabText,
+                { color: mode === 'ATTEND' ? colors.emerald : colors.textTertiary },
+              ]}
+            >
+              If I Attend Consecutively
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-                      <View>
-                        <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>
-                          {mode === 'MISS'
-                            ? `If you miss ${step.count} class${step.count > 1 ? 'es' : ''}`
-                            : `If you attend ${step.count} class${step.count > 1 ? 'es' : ''}`}
-                        </Text>
-                        <Text style={[styles.stepDelta, { color: colors.textTertiary }]}>
-                          {mode === 'MISS' ? `−${step.drop}% drop` : `+${step.gain}% gain`}
-                        </Text>
-                      </View>
-                    </View>
+        {/* Ladder Simulation List */}
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          <Text style={[styles.sectionHeading, { color: colors.textTertiary }]}>
+            {mode === 'MISS' ? 'PROJECTED ATTENDANCE DROP LADDER' : 'PROJECTED RECOVERY TRAJECTORY'}
+          </Text>
 
-                    <View style={styles.ladderRight}>
+          {ladderSteps.map((step, idx) => {
+            const showThresholdLine =
+              mode === 'MISS' &&
+              step.isBelow &&
+              (idx === 0 || !ladderSteps[idx - 1].isBelow);
+
+            return (
+              <React.Fragment key={`step_${step.count}`}>
+                {showThresholdLine && (
+                  <View style={[styles.thresholdMarker, { backgroundColor: 'rgba(200, 92, 92, 0.15)', borderColor: 'rgba(200, 92, 92, 0.4)' }]}>
+                    <AlertTriangle size={14} color={colors.crimson} />
+                    <Text style={[styles.thresholdText, { color: colors.crimson }]}>
+                      ⚠️ {target}% Minimum Threshold Crossed Here
+                    </Text>
+                  </View>
+                )}
+
+                <View
+                  style={[
+                    styles.ladderCard,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                    step.isBelow && mode === 'MISS' && { borderColor: 'rgba(200, 92, 92, 0.3)' },
+                  ]}
+                >
+                  <View style={styles.ladderLeft}>
+                    <View
+                      style={[
+                        styles.stepBubble,
+                        {
+                          backgroundColor:
+                            mode === 'MISS'
+                              ? 'rgba(200, 92, 92, 0.15)'
+                              : 'rgba(46, 139, 99, 0.15)',
+                        },
+                      ]}
+                    >
                       <Text
                         style={[
-                          styles.ladderPct,
-                          {
-                            color:
-                              step.pct >= target
-                                ? colors.emerald
-                                : step.pct >= 65
-                                ? colors.gold
-                                : colors.crimson,
-                          },
+                          styles.stepBubbleText,
+                          { color: mode === 'MISS' ? colors.crimson : colors.emerald },
                         ]}
                       >
-                        {step.pct.toFixed(1)}%
+                        {step.count}
+                      </Text>
+                    </View>
+
+                    <View>
+                      <Text style={[styles.stepTitle, { color: colors.textPrimary }]}>
+                        {mode === 'MISS'
+                          ? `If you miss ${step.count} class${step.count > 1 ? 'es' : ''}`
+                          : `If you attend ${step.count} class${step.count > 1 ? 'es' : ''}`}
+                      </Text>
+                      <Text style={[styles.stepDelta, { color: colors.textTertiary }]}>
+                        {mode === 'MISS' ? `−${step.drop}% drop` : `+${step.gain}% gain`}
                       </Text>
                     </View>
                   </View>
-                </React.Fragment>
-              );
-            })}
-          </ScrollView>
-        </View>
+
+                  <View style={styles.ladderRight}>
+                    <Text
+                      style={[
+                        styles.ladderPct,
+                        {
+                          color:
+                            step.pct >= target
+                              ? colors.emerald
+                              : step.pct >= 65
+                              ? colors.gold
+                              : colors.crimson,
+                        },
+                      ]}
+                    >
+                      {step.pct.toFixed(1)}%
+                    </Text>
+                  </View>
+                </View>
+              </React.Fragment>
+            );
+          })}
+        </ScrollView>
       </View>
-    </Modal>
+    </SmoothBottomSheet>
   );
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    borderTopLeftRadius: THEME.borderRadius.xxl,
-    borderTopRightRadius: THEME.borderRadius.xxl,
-    maxHeight: '85%',
-    borderWidth: 1,
-    paddingTop: THEME.spacing.lg,
+  sheetInner: {
+    paddingTop: THEME.spacing.xs,
   },
   headerRow: {
     flexDirection: 'row',

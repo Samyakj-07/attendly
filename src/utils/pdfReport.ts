@@ -2,7 +2,17 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { StudentProfile, Subject, AttendanceRecord } from '../types';
 import { attendancePercentage, attendanceBuffer, subjectRiskLevel, predictInternalMarks } from './ipuEngine';
-import { Platform } from 'react-native';
+import { Platform, Alert } from 'react-native';
+
+function escapeHtml(str: string | undefined | null): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 export async function generateIPUAttendancePDF(
   profile: StudentProfile,
@@ -32,22 +42,23 @@ export async function generateIPUAttendancePDF(
       const buf = attendanceBuffer(s.attended, s.total, s.targetRequirement || profile.targetAttendance || 75);
       const bufText = buf >= 0 ? `+${buf}` : `${buf}`;
       const statusColor = pct >= 75 ? '#10B981' : pct >= 65 ? '#F59E0B' : '#EF4444';
+      const statusBg = pct >= 75 ? 'rgba(16, 185, 129, 0.15)' : pct >= 65 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)';
 
       return `
         <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
           <td style="padding: 10px 8px; text-align: center;">${idx + 1}</td>
           <td style="padding: 10px 8px;">
-            <div style="font-weight: 600; color: #0f172a;">${s.name}</div>
-            <div style="font-size: 11px; color: #64748b;">${s.code} • ${s.type} (${s.ltp || '3-0-0'})</div>
+            <div style="font-weight: 600; color: #0f172a;">${escapeHtml(s.name)}</div>
+            <div style="font-size: 11px; color: #64748b;">${escapeHtml(s.code)} • ${escapeHtml(s.type)} (${escapeHtml(s.ltp || '3-0-0')})</div>
           </td>
-          <td style="padding: 10px 8px; text-align: center; color: #334155;">${s.faculty || '—'}</td>
+          <td style="padding: 10px 8px; text-align: center; color: #334155;">${escapeHtml(s.faculty || '—')}</td>
           <td style="padding: 10px 8px; text-align: center; font-weight: 500;">${s.attended} / ${s.total}</td>
           <td style="padding: 10px 8px; text-align: center; color: #64748b;">${s.od || 0}</td>
           <td style="padding: 10px 8px; text-align: center; font-weight: 700; color: ${statusColor}; font-size: 14px;">${pct}%</td>
           <td style="padding: 10px 8px; text-align: center; font-weight: 600; color: ${buf >= 0 ? '#10B981' : '#EF4444'};">${bufText}</td>
           <td style="padding: 10px 8px; text-align: center;">
-            <span style="display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: ${statusColor}15; color: ${statusColor};">
-              ${risk.label}
+            <span style="display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: ${statusBg}; color: ${statusColor};">
+              ${escapeHtml(risk.label)}
             </span>
           </td>
         </tr>
@@ -60,7 +71,7 @@ export async function generateIPUAttendancePDF(
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>Attendly — Official Attendance Statement</title>
+        <title>Attendly — Personal Attendance Statement</title>
         <style>
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -166,8 +177,8 @@ export async function generateIPUAttendancePDF(
       <body>
         <div class="header-box">
           <div>
-            <div class="title">${profile.college || 'GGSIPU'}</div>
-            <div class="subtitle">${profile.collegeShort || ''} • Attendly Attendance Statement</div>
+            <div class="title">${escapeHtml(profile.college) || 'GGSIPU'}</div>
+            <div class="subtitle">${escapeHtml(profile.collegeShort) || ''} • Attendly Attendance Statement</div>
           </div>
           <div style="text-align: right;">
             <div style="font-size: 11px; color: #64748b;">Generated Date</div>
@@ -178,23 +189,23 @@ export async function generateIPUAttendancePDF(
         <div class="profile-grid">
           <div class="profile-item">
             <div class="profile-label">Student Name</div>
-            <div class="profile-value">${profile.name || 'Student'}</div>
+            <div class="profile-value">${escapeHtml(profile.name) || 'Student'}</div>
           </div>
           <div class="profile-item">
             <div class="profile-label">Enrollment / Roll No.</div>
-            <div class="profile-value">${profile.enrollmentNumber || profile.rollNumber || 'Not Specified'}</div>
+            <div class="profile-value">${escapeHtml(profile.enrollmentNumber || profile.rollNumber) || 'Not Specified'}</div>
           </div>
           <div class="profile-item">
             <div class="profile-label">Programme & Branch</div>
-            <div class="profile-value">${profile.programme} ${profile.branch}</div>
+            <div class="profile-value">${escapeHtml(profile.programme)} ${escapeHtml(profile.branch)}</div>
           </div>
           <div class="profile-item">
             <div class="profile-label">Semester & Section</div>
-            <div class="profile-value">Semester ${profile.semester} • Section ${profile.section}</div>
+            <div class="profile-value">Semester ${profile.semester} • Section ${escapeHtml(profile.section)}</div>
           </div>
           <div class="profile-item">
             <div class="profile-label">Academic Session</div>
-            <div class="profile-value">${profile.academicSession}</div>
+            <div class="profile-value">${escapeHtml(profile.academicSession)}</div>
           </div>
           <div class="profile-item">
             <div class="profile-label">Minimum Target</div>
@@ -244,8 +255,8 @@ export async function generateIPUAttendancePDF(
         </div>
 
         <div class="footer">
-          <div>Attendly • Official Attendance Statement • ${profile.college || 'GGSIPU'}</div>
-          <div>Page 1 of 1 • System Generated Ledger</div>
+          <div>Attendly • Personal Attendance Statement (Self-Reported) • ${escapeHtml(profile.college) || 'GGSIPU'}</div>
+          <div>Page 1 of 1 • System Generated Academic Ledger</div>
         </div>
       </body>
     </html>
@@ -253,23 +264,47 @@ export async function generateIPUAttendancePDF(
 
   try {
     if (Platform.OS === 'web') {
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.write(html);
-        printWindow.document.close();
-        printWindow.print();
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        doc.open();
+        doc.write(html);
+        doc.close();
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 3000);
       }
     } else {
       const { uri } = await Print.printToFileAsync({ html });
       if (await Sharing.isAvailableAsync()) {
+        const sanitizedCollege = (profile.collegeShort || 'College').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const sanitizedName = (profile.name || 'Student').replace(/[^a-zA-Z0-9_-]/g, '_');
         await Sharing.shareAsync(uri, {
-          UTI: '.pdf',
+          UTI: 'com.adobe.pdf',
           mimeType: 'application/pdf',
-          dialogTitle: `${profile.collegeShort}_Attendance_Report_${profile.name}.pdf`,
+          dialogTitle: `${sanitizedCollege}_Attendance_Report_${sanitizedName}.pdf`,
         });
+      } else {
+        Alert.alert(
+          'Attendance Statement Generated',
+          `Your official PDF statement was generated successfully at:\n\n${uri}\n\nTo share or print, please ensure a file viewer or sharing application is installed on your device.`,
+          [{ text: 'OK' }]
+        );
       }
     }
   } catch (error) {
     console.error('Error generating PDF report:', error);
+    Alert.alert('Export Error', 'Unable to generate PDF report. Please try again.');
   }
 }

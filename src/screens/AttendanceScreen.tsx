@@ -1,14 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
@@ -29,20 +32,9 @@ import {
 import { AppHaptics } from '../utils/haptics';
 import { attendancePercentage } from '../utils/ipuEngine';
 
-const DAYS: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+import { TIME_PRESETS } from '../constants/timetableConfig';
 
-const TIME_PRESETS = [
-  { label: '09:30 – 10:30', start: '09:30', end: '10:30' },
-  { label: '10:30 – 11:30', start: '10:30', end: '11:30' },
-  { label: '11:30 – 12:30', start: '11:30', end: '12:30' },
-  { label: '12:30 – 01:30', start: '12:30', end: '01:30' },
-  { label: '01:30 – 02:30', start: '01:30', end: '02:30' },
-  { label: '02:30 – 03:30', start: '02:30', end: '03:30' },
-  { label: '03:30 – 04:30', start: '03:30', end: '04:30' },
-  { label: '04:30 – 05:30', start: '04:30', end: '05:30' },
-  { label: '11:30 – 01:30 (Lab)', start: '11:30', end: '01:30' },
-  { label: '01:30 – 03:30 (Lab)', start: '01:30', end: '03:30' },
-];
+const DAYS: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 const formatTimeString = (t: string): string => {
   if (!t) return '09:30';
@@ -68,8 +60,8 @@ interface CourseScheduleSlot {
   endTime: string;
 }
 
-export const AttendanceScreen: React.FC = () => {
-  const { colors, isDark } = useTheme();
+export const AttendanceScreen: React.FC = React.memo(() => {
+  const { colors } = useTheme();
   const { subjects, addSubject, addTimetableSlot, addMultipleTimetableSlots, overallPercentage, profile } =
     useAttendance();
 
@@ -89,7 +81,7 @@ export const AttendanceScreen: React.FC = () => {
   const [subCode, setSubCode] = useState('');
   const [subType, setSubType] = useState<SubjectType>('Theory');
   const [subFaculty, setSubFaculty] = useState('');
-  const [subRoom, setSubRoom] = useState('A-204');
+  const [subRoom, setSubRoom] = useState('');
   const [subCredits, setSubCredits] = useState('4');
   const [subLTP, setSubLTP] = useState('3-0-2');
   const [isLab2x, setIsLab2x] = useState(false);
@@ -146,7 +138,7 @@ export const AttendanceScreen: React.FC = () => {
   const handleAddExtraSlotForDay = (d: DayOfWeek) => {
     AppHaptics.light();
     const newSlot: CourseScheduleSlot = {
-      id: `slot_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      id: `slot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       day: d,
       startTime: '10:30',
       endTime: '11:30',
@@ -214,50 +206,72 @@ export const AttendanceScreen: React.FC = () => {
     setFormError(null);
   };
 
+  const handleOpenSimulator = useCallback((s: Subject) => {
+    setSelectedSubject(s);
+    setIsSimulatorOpen(true);
+  }, []);
+
+  const handleOpenRecovery = useCallback((s: Subject) => {
+    setSelectedSubject(s);
+    setIsRecoveryOpen(true);
+  }, []);
+
+  const handleOpenPastHistory = useCallback((s: Subject) => {
+    setSelectedSubject(s);
+    setIsPastLogsOpen(true);
+  }, []);
+
   return (
     <SafeAreaView style={[styles.safeContainer, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Editorial Header */}
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>ACADEMIC CURRICULUM</Text>
-            <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Courses.</Text>
-            <Text style={[styles.screenSubtitle, { color: colors.textTertiary }]}>
-              {subjects.length} Registered Courses · {overallPercentage.toFixed(1)}% Aggregate
-            </Text>
+        <View style={styles.headerBox}>
+          <View style={styles.headerTopRow}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>CURRICULUM OBSERVATORY</Text>
+              <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Courses.</Text>
+            </View>
+
+            <View style={styles.headerActions}>
+              {/* 📅 Interactive Attendance Calendar Button */}
+              <TouchableOpacity
+                style={[styles.pastLogsBtn, { backgroundColor: colors.softBlue, borderColor: colors.border }]}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Open attendance calendar"
+                onPress={() => {
+                  AppHaptics.light();
+                  setIsPastLogsOpen(true);
+                }}
+              >
+                <CalendarDays size={13} color={colors.navy} />
+                <Text style={[styles.pastLogsBtnText, { color: colors.navy }]}>Calendar</Text>
+              </TouchableOpacity>
+
+              {/* + Add Course Button */}
+              <TouchableOpacity
+                style={[styles.addBtn, { backgroundColor: colors.navy }]}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Add new course"
+                onPress={() => {
+                  AppHaptics.light();
+                  setIsAddModalOpen(true);
+                }}
+              >
+                <Plus size={13} color={colors.textInverse} />
+                <Text style={[styles.addBtnText, { color: colors.textInverse }]}>Add Course</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <View style={styles.headerActions}>
-            {/* 📅 Interactive Attendance Calendar Button */}
-            <TouchableOpacity
-              style={[styles.pastLogsBtn, { backgroundColor: colors.surfaceElevated, borderColor: colors.borderHighlight }]}
-              activeOpacity={0.8}
-              onPress={() => {
-                AppHaptics.light();
-                setIsPastLogsOpen(true);
-              }}
-            >
-              <CalendarDays size={13} color={colors.accent} />
-              <Text style={[styles.pastLogsBtnText, { color: colors.accent }]}>Calendar</Text>
-            </TouchableOpacity>
-
-            {/* + Add Course Button */}
-            <TouchableOpacity
-              style={[styles.addBtn, { backgroundColor: colors.textPrimary }]}
-              activeOpacity={0.8}
-              onPress={() => {
-                AppHaptics.light();
-                setIsAddModalOpen(true);
-              }}
-            >
-              <Plus size={13} color={colors.textInverse} />
-              <Text style={[styles.addBtnText, { color: colors.textInverse }]}>Add Course</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
+            Your semester curriculum & performance at a glance
+          </Text>
         </View>
 
         {/* Search Bar */}
-        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Search size={14} color={colors.textTertiary} />
           <TextInput
             style={[styles.searchInput, { color: colors.textPrimary }]}
@@ -265,6 +279,8 @@ export const AttendanceScreen: React.FC = () => {
             placeholderTextColor={colors.textTertiary}
             value={searchQuery}
             onChangeText={setSearchQuery}
+            returnKeyType="search"
+            onSubmitEditing={() => Keyboard.dismiss()}
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery('')}>
@@ -279,30 +295,34 @@ export const AttendanceScreen: React.FC = () => {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterScroll}
         >
-          {(['ALL', 'CRITICAL', 'SAFE', 'THEORY', 'LAB'] as const).map(f => (
-            <TouchableOpacity
-              key={f}
-              style={[
-                styles.filterPill,
-                { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
-                activeFilter === f && { backgroundColor: colors.surfaceElevated, borderColor: colors.borderHighlight },
-              ]}
-              onPress={() => {
-                AppHaptics.selection();
-                setActiveFilter(f);
-              }}
-            >
-              <Text
+          {(['ALL', 'CRITICAL', 'SAFE', 'THEORY', 'LAB'] as const).map(f => {
+            const isActive = activeFilter === f;
+            return (
+              <TouchableOpacity
+                key={f}
                 style={[
-                  styles.filterPillText,
-                  { color: colors.textTertiary },
-                  activeFilter === f && { color: colors.textPrimary },
+                  styles.filterPill,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  isActive && { backgroundColor: colors.navy, borderColor: colors.navy },
                 ]}
+                activeOpacity={0.75}
+                onPress={() => {
+                  AppHaptics.selection();
+                  setActiveFilter(f);
+                }}
               >
-                {f}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  style={[
+                    styles.filterPillText,
+                    { color: colors.textSecondary },
+                    isActive && { color: colors.textInverse, fontWeight: '800' },
+                  ]}
+                >
+                  {f}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
 
         {/* List of Subjects */}
@@ -324,31 +344,33 @@ export const AttendanceScreen: React.FC = () => {
               key={sub.id}
               subject={sub}
               index={idx}
-              onOpenSimulator={s => {
-                setSelectedSubject(s);
-                setIsSimulatorOpen(true);
-              }}
-              onOpenRecovery={s => {
-                setSelectedSubject(s);
-                setIsRecoveryOpen(true);
-              }}
-              onOpenPastHistory={s => {
-                setSelectedSubject(s);
-                setIsPastLogsOpen(true);
-              }}
+              onOpenSimulator={handleOpenSimulator}
+              onOpenRecovery={handleOpenRecovery}
+              onOpenPastHistory={handleOpenPastHistory}
             />
           ))
         )}
       </ScrollView>
 
       {/* Add Subject Modal with Initial Counts & Timetable Slots */}
-      <Modal visible={isAddModalOpen} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+      <Modal
+        visible={isAddModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsAddModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
             <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
               <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Add Course & Schedule</Text>
               <TouchableOpacity
                 style={[styles.closeBtn, { backgroundColor: colors.surfaceSubtle }]}
+                accessibilityRole="button"
+                accessibilityLabel="Close course creation modal"
                 onPress={() => setIsAddModalOpen(false)}
               >
                 <X size={18} color={colors.textSecondary} />
@@ -362,7 +384,7 @@ export const AttendanceScreen: React.FC = () => {
                     styles.errorBox,
                     {
                       backgroundColor: colors.crimsonSubtle,
-                      borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(200, 92, 92, 0.3)',
+                      borderColor: 'rgba(200, 92, 92, 0.3)',
                     },
                   ]}
                 >
@@ -425,7 +447,7 @@ export const AttendanceScreen: React.FC = () => {
                       ATTENDED (PRESENT)
                     </Text>
                     <TextInput
-                      style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : 'rgba(46, 139, 99, 0.4)' }]}
+                      style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: 'rgba(46, 139, 99, 0.4)' }]}
                       placeholder="0"
                       placeholderTextColor={colors.textTertiary}
                       value={subInitialPresent}
@@ -439,7 +461,7 @@ export const AttendanceScreen: React.FC = () => {
                       MISSED (ABSENT)
                     </Text>
                     <TextInput
-                      style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: isDark ? 'rgba(239, 68, 68, 0.4)' : 'rgba(200, 92, 92, 0.4)' }]}
+                      style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: 'rgba(200, 92, 92, 0.4)' }]}
                       placeholder="0"
                       placeholderTextColor={colors.textTertiary}
                       value={subInitialAbsent}
@@ -590,6 +612,8 @@ export const AttendanceScreen: React.FC = () => {
                             <Text style={[styles.dayGroupTitle, { color: colors.textPrimary }]}>{d} SCHEDULE</Text>
                             <TouchableOpacity
                               style={styles.addExtraBtn}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Add extra period on ${d}`}
                               onPress={() => handleAddExtraSlotForDay(d)}
                             >
                               <Plus size={10} color={colors.accent} />
@@ -603,6 +627,8 @@ export const AttendanceScreen: React.FC = () => {
                                 <Text style={[styles.slotCardTitle, { color: colors.textPrimary }]}>Period {slotIdx + 1}</Text>
                                 <TouchableOpacity
                                   style={styles.removeSlotBtn}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Delete period ${slotIdx + 1} on ${d}`}
                                   onPress={() => handleRemoveSlot(slot.id)}
                                 >
                                   <Trash2 size={11} color={colors.crimson} />
@@ -789,6 +815,7 @@ export const AttendanceScreen: React.FC = () => {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Simulator Modal */}
@@ -822,7 +849,7 @@ export const AttendanceScreen: React.FC = () => {
       />
     </SafeAreaView>
   );
-};
+});
 
 const styles = StyleSheet.create({
   safeContainer: {
@@ -831,13 +858,15 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 100,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+  headerBox: {
     paddingHorizontal: THEME.spacing.xl,
     paddingTop: THEME.spacing.sm,
     paddingBottom: THEME.spacing.xs,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   screenEyebrow: {
     fontSize: 9,
@@ -858,7 +887,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 6,
   },
   pastLogsBtn: {
     flexDirection: 'row',
@@ -1203,5 +1231,19 @@ const styles = StyleSheet.create({
   createCourseText: {
     fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.heavy,
+  },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    padding: 10,
+    borderRadius: THEME.borderRadius.sm,
+    borderWidth: 1,
+    marginBottom: 14,
+  },
+  errorText: {
+    fontSize: 11,
+    fontWeight: THEME.typography.weights.bold,
+    flex: 1,
   },
 });

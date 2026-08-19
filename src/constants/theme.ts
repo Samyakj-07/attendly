@@ -1,15 +1,11 @@
-// Attendly Design Tokens — Layout & Typography (theme-agnostic)
+// Attendly Design Tokens — Layout & Editorial Typography (theme-agnostic)
 // Colors are provided dynamically via ThemeContext / useTheme()
-// This file exports static layout tokens + a backward-compatible THEME object
-// that defaults to dark colors for StyleSheet.create at module scope.
 
-import { DARK_COLORS, DARK_SHADOWS } from './themes';
+import { LIGHT_COLORS, LIGHT_SHADOWS } from './themes';
 
 export const THEME = {
-  // Backward-compatible colors — defaults to dark palette.
-  // Components should prefer useTheme().colors for dynamic theming.
-  colors: DARK_COLORS,
-  shadows: DARK_SHADOWS,
+  colors: LIGHT_COLORS,
+  shadows: LIGHT_SHADOWS,
 
   spacing: {
     xxs: 2,
@@ -42,8 +38,8 @@ export const THEME = {
       xxl: 22,
       title: 26,
       headline: 34,
-      display: 60,
-      hero: 68,
+      display: 48,
+      hero: 64,
     },
     weights: {
       regular: '400' as const,
@@ -51,6 +47,7 @@ export const THEME = {
       semibold: '600' as const,
       bold: '700' as const,
       heavy: '800' as const,
+      black: '900' as const,
     },
     letterSpacing: {
       tighter: -1.2,
@@ -58,6 +55,8 @@ export const THEME = {
       normal: 0,
       wide: 0.8,
       widest: 1.6,
+      editorial: 2.0,
     },
   },
 };
+

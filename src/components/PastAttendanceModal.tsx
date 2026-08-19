@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Modal,
   ScrollView,
   TouchableOpacity,
 } from 'react-native';
@@ -14,7 +13,10 @@ import { AttendanceRecord, AttendanceStatus, DayOfWeek } from '../types';
 import {
   attendancePercentage,
   attendanceBuffer,
+  normalizeTimeString,
+  isSlotMatchingRecord,
 } from '../utils/ipuEngine';
+import { SmoothBottomSheet } from './SmoothBottomSheet';
 import {
   X,
   Calendar as CalendarIcon,
@@ -56,7 +58,7 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
   onClose,
   initialSubjectId,
 }) => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const {
     records,
     subjects,
@@ -272,7 +274,24 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
     slotTime?: string
   ) => {
     AppHaptics.selection();
-    const existing = recordsOnSelectedDate.find(r => r.subjectId === subjectId);
+    const normSlotTime = slotTime ? normalizeTimeString(slotTime) : undefined;
+    let slotStart = '';
+    let slotEnd = '';
+    if (normSlotTime && normSlotTime.includes(' - ')) {
+      const [sStart, sEnd] = normSlotTime.split(' - ');
+      slotStart = sStart.trim();
+      slotEnd = sEnd.trim();
+    } else if (normSlotTime) {
+      slotStart = normSlotTime.trim();
+    }
+
+    const existing = recordsOnSelectedDate.find(
+      r =>
+        r.subjectId === subjectId &&
+        (normSlotTime
+          ? isSlotMatchingRecord(r.slotTime, r.note, slotStart, slotEnd, selectedDayInfo.shortDay)
+          : true)
+    );
     if (existing) {
       if (existing.status === status) {
         // Unmark if tapping same status
@@ -283,7 +302,7 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
     } else {
       await markAttendance(subjectId, status, {
         date: selectedDateStr,
-        time: slotTime || '09:30 – 10:30',
+        time: normSlotTime || '09:30 - 10:30',
       });
     }
   };
@@ -308,6 +327,7 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
         startTime: '09:30',
         endTime: '10:30',
         room: sub.room || 'A-204',
+        faculty: sub.faculty || '',
       }));
       await markAllSlotsAttendance(virtualSlots, 'PRESENT', selectedDateStr);
     }
@@ -331,11 +351,10 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
   }, [recordsOnSelectedDate]);
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
-        <View style={[styles.modalSheet, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
-          {/* Top Bar Header */}
-          <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
+    <SmoothBottomSheet visible={visible} onClose={onClose} maxHeight="94%" showHandle={true}>
+      <View style={styles.sheetInner}>
+        {/* Top Bar Header */}
+        <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
             <View>
               <View style={styles.eyebrowRow}>
                 <CalendarIcon size={11} color={colors.accent} />
@@ -466,6 +485,9 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
               <View style={styles.monthNavRow}>
                 <TouchableOpacity
                   style={[styles.monthArrowBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous month"
                   onPress={handlePrevMonth}
                 >
                   <ChevronLeft size={16} color={colors.textPrimary} />
@@ -479,6 +501,9 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <TouchableOpacity
                     style={[styles.todayPillBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.accent }]}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Jump to current date"
                     onPress={handleJumpToToday}
                   >
                     <Text style={[styles.todayPillText, { color: colors.accent }]}>Today</Text>
@@ -486,6 +511,9 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
 
                   <TouchableOpacity
                     style={[styles.monthArrowBtn, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Next month"
                     onPress={handleNextMonth}
                   >
                     <ChevronRight size={16} color={colors.textPrimary} />
@@ -517,6 +545,12 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                     r => r.status === 'CANCELLED'
                   );
 
+                  const statusSummary = [
+                    hasPresent ? 'Attended' : '',
+                    hasAbsent ? 'Missed' : '',
+                    hasCancelled ? 'Cancelled' : '',
+                  ].filter(Boolean).join(', ') || 'No records';
+
                   return (
                     <TouchableOpacity
                       key={cd.dateStr}
@@ -526,6 +560,8 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                         cd.isToday && !cd.isSelected && [styles.dateCellToday, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderHighlight }],
                       ]}
                       activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${cd.dayNumber} ${MONTH_NAMES[currentMonth.getMonth()]}, ${statusSummary}${cd.isToday ? ', Today' : ''}`}
                       onPress={() => {
                         AppHaptics.selection();
                         setSelectedDateStr(cd.dateStr);
@@ -588,7 +624,7 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                       styles.markAllPresentBtn,
                       {
                         backgroundColor: colors.emeraldSubtle,
-                        borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : 'rgba(46, 139, 99, 0.4)',
+                        borderColor: 'rgba(46, 139, 99, 0.4)',
                       },
                     ]}
                     activeOpacity={0.8}
@@ -611,194 +647,192 @@ export const PastAttendanceModal: React.FC<PastAttendanceModalProps> = ({
                   </View>
                 ) : (
                   displaySubjects.map(sub => {
-                    const existingRecord = recordsOnSelectedDate.find(
-                      r => r.subjectId === sub.id
-                    );
-                    const activeStatus = existingRecord?.status;
-
-                    const scheduledSlot = timetable.find(
+                    const scheduledSlots = timetable.filter(
                       t => t.day === selectedDayInfo.shortDay && t.subjectId === sub.id
                     );
+                    const slotsToRender = scheduledSlots.length > 0
+                      ? scheduledSlots
+                      : [{ id: `default_${sub.id}`, startTime: '09:30', endTime: '10:30', room: sub.room }];
 
-                    return (
-                      <View key={sub.id} style={[styles.courseMarkCard, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}>
-                        <View style={styles.courseInfoRow}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.courseNameText, { color: colors.textPrimary }]} numberOfLines={1}>
-                              {sub.name}
-                            </Text>
-                            <Text style={[styles.courseSlotText, { color: colors.textTertiary }]}>
-                              {scheduledSlot
-                                ? `${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
-                                : 'Registered Course'}
-                              {sub.room ? ` · ${sub.room}` : ''}
-                            </Text>
+                    return slotsToRender.map(slot => {
+                      const slotTimeStr = `${slot.startTime} – ${slot.endTime}`;
+                      const existingRecord = recordsOnSelectedDate.find(
+                        r =>
+                          r.subjectId === sub.id &&
+                          isSlotMatchingRecord(
+                            r.slotTime,
+                            r.note,
+                            slot.startTime,
+                            slot.endTime,
+                            selectedDayInfo.shortDay
+                          )
+                      );
+                      const activeStatus = existingRecord?.status;
+
+                      return (
+                        <View key={`${sub.id}_${slot.id || slot.startTime}`} style={[styles.courseMarkCard, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle }]}>
+                          <View style={styles.courseInfoRow}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.courseNameText, { color: colors.textPrimary }]} numberOfLines={1}>
+                                {sub.name}
+                              </Text>
+                              <Text style={[styles.courseSlotText, { color: colors.textTertiary }]}>
+                                {slotTimeStr}
+                                {slot.room || sub.room ? ` · ${slot.room || sub.room}` : ''}
+                              </Text>
+                            </View>
+
+                            <View style={[styles.codeBadge, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                              <Text style={[styles.codeBadgeText, { color: colors.accent }]}>{sub.code}</Text>
+                            </View>
                           </View>
 
-                          <View style={[styles.codeBadge, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-                            <Text style={[styles.codeBadgeText, { color: colors.accent }]}>{sub.code}</Text>
-                          </View>
-                        </View>
-
-                        {/* Direct 1-Tap Attendance Buttons */}
-                        <View style={styles.buttonsRow}>
-                          {/* Present Button */}
-                          <TouchableOpacity
-                            style={[
-                              styles.btnStatus,
-                              {
-                                backgroundColor: colors.surface,
-                                borderColor: isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(46, 139, 99, 0.2)',
-                              },
-                              activeStatus === 'PRESENT' && {
-                                backgroundColor: colors.emeraldSubtle,
-                                borderColor: colors.emerald,
-                                borderWidth: 1.5,
-                              },
-                            ]}
-                            activeOpacity={0.75}
-                            onPress={() =>
-                              handleMarkCourse(
-                                sub.id,
-                                'PRESENT',
-                                scheduledSlot
-                                  ? `${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
-                                  : '09:30 – 10:30'
-                              )
-                            }
-                          >
-                            <Check
-                              size={12}
-                              color={
-                                activeStatus === 'PRESENT'
-                                  ? colors.emerald
-                                  : colors.textSecondary
-                              }
-                            />
-                            <Text
+                          {/* Direct 1-Tap Attendance Buttons */}
+                          <View style={styles.buttonsRow}>
+                            {/* Present Button */}
+                            <TouchableOpacity
                               style={[
-                                styles.btnStatusText,
-                                { color: colors.textSecondary },
+                                styles.btnStatus,
+                                {
+                                  backgroundColor: colors.surface,
+                                  borderColor: 'rgba(46, 139, 99, 0.2)',
+                                },
                                 activeStatus === 'PRESENT' && {
-                                  color: colors.emerald,
-                                  fontWeight: '900',
+                                  backgroundColor: colors.emeraldSubtle,
+                                  borderColor: colors.emerald,
+                                  borderWidth: 1.5,
                                 },
                               ]}
-                            >
-                              Present
-                            </Text>
-                          </TouchableOpacity>
-
-                          {/* Absent Button */}
-                          <TouchableOpacity
-                            style={[
-                              styles.btnStatus,
-                              {
-                                backgroundColor: colors.surface,
-                                borderColor: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(200, 92, 92, 0.2)',
-                              },
-                              activeStatus === 'ABSENT' && {
-                                backgroundColor: colors.crimsonSubtle,
-                                borderColor: colors.crimson,
-                                borderWidth: 1.5,
-                              },
-                            ]}
-                            activeOpacity={0.75}
-                            onPress={() =>
-                              handleMarkCourse(
-                                sub.id,
-                                'ABSENT',
-                                scheduledSlot
-                                  ? `${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
-                                  : '09:30 – 10:30'
-                              )
-                            }
-                          >
-                            <X
-                              size={12}
-                              color={
-                                activeStatus === 'ABSENT'
-                                  ? colors.crimson
-                                  : colors.textSecondary
+                              activeOpacity={0.75}
+                              onPress={() =>
+                                handleMarkCourse(
+                                  sub.id,
+                                  'PRESENT',
+                                  slotTimeStr
+                                )
                               }
-                            />
-                            <Text
-                              style={[
-                                styles.btnStatusText,
-                                { color: colors.textSecondary },
-                                activeStatus === 'ABSENT' && {
-                                  color: colors.crimson,
-                                  fontWeight: '900',
-                                },
-                              ]}
                             >
-                              Absent
-                            </Text>
-                          </TouchableOpacity>
+                              <Check
+                                size={12}
+                                color={
+                                  activeStatus === 'PRESENT'
+                                    ? colors.emerald
+                                    : colors.textSecondary
+                                }
+                              />
+                              <Text
+                                style={[
+                                  styles.btnStatusText,
+                                  { color: colors.textSecondary },
+                                  activeStatus === 'PRESENT' && {
+                                    color: colors.emerald,
+                                    fontWeight: '900',
+                                  },
+                                ]}
+                              >
+                                Present
+                              </Text>
+                            </TouchableOpacity>
 
-                          {/* No Class Button */}
-                          <TouchableOpacity
-                            style={[
-                              styles.btnStatus,
-                              {
-                                backgroundColor: colors.surface,
-                                borderColor: colors.borderSubtle,
-                                flex: 1,
-                              },
-                              activeStatus === 'CANCELLED' && {
-                                backgroundColor: colors.surfaceElevated,
-                                borderColor: colors.textPrimary,
-                                borderWidth: 1.5,
-                              },
-                            ]}
-                            activeOpacity={0.75}
-                            onPress={() =>
-                              handleMarkCourse(
-                                sub.id,
-                                'CANCELLED',
-                                scheduledSlot
-                                  ? `${scheduledSlot.startTime} – ${scheduledSlot.endTime}`
-                                  : '09:30 – 10:30'
-                              )
-                            }
-                          >
-                            <Text
+                            {/* Absent Button */}
+                            <TouchableOpacity
                               style={[
-                                styles.btnStatusText,
-                                { color: colors.textSecondary },
-                                activeStatus === 'CANCELLED' && {
-                                  color: colors.textPrimary,
-                                  fontWeight: '900',
+                                styles.btnStatus,
+                                {
+                                  backgroundColor: colors.surface,
+                                  borderColor: 'rgba(200, 92, 92, 0.2)',
+                                },
+                                activeStatus === 'ABSENT' && {
+                                  backgroundColor: colors.crimsonSubtle,
+                                  borderColor: colors.crimson,
+                                  borderWidth: 1.5,
                                 },
                               ]}
+                              activeOpacity={0.75}
+                              onPress={() =>
+                                handleMarkCourse(
+                                  sub.id,
+                                  'ABSENT',
+                                  slotTimeStr
+                                )
+                              }
                             >
-                              No Class
-                            </Text>
-                          </TouchableOpacity>
+                              <X
+                                size={12}
+                                color={
+                                  activeStatus === 'ABSENT'
+                                    ? colors.crimson
+                                    : colors.textSecondary
+                                }
+                              />
+                              <Text
+                                style={[
+                                  styles.btnStatusText,
+                                  { color: colors.textSecondary },
+                                  activeStatus === 'ABSENT' && {
+                                    color: colors.crimson,
+                                    fontWeight: '900',
+                                  },
+                                ]}
+                              >
+                                Absent
+                              </Text>
+                            </TouchableOpacity>
+
+                            {/* No Class Button */}
+                            <TouchableOpacity
+                              style={[
+                                styles.btnStatus,
+                                {
+                                  backgroundColor: colors.surface,
+                                  borderColor: colors.borderSubtle,
+                                  flex: 1,
+                                },
+                                activeStatus === 'CANCELLED' && {
+                                  backgroundColor: colors.surfaceElevated,
+                                  borderColor: colors.textPrimary,
+                                  borderWidth: 1.5,
+                                },
+                              ]}
+                              activeOpacity={0.75}
+                              onPress={() =>
+                                handleMarkCourse(
+                                  sub.id,
+                                  'CANCELLED',
+                                  slotTimeStr
+                                )
+                              }
+                            >
+                              <Text
+                                style={[
+                                  styles.btnStatusText,
+                                  { color: colors.textSecondary },
+                                  activeStatus === 'CANCELLED' && {
+                                    color: colors.textPrimary,
+                                    fontWeight: '900',
+                                  },
+                                ]}
+                              >
+                                No Class
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                      </View>
-                    );
+                      );
+                    });
                   })
                 )}
               </View>
             </View>
           </ScrollView>
         </View>
-      </View>
-    </Modal>
+    </SmoothBottomSheet>
   );
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    borderTopLeftRadius: THEME.borderRadius.xxl,
-    borderTopRightRadius: THEME.borderRadius.xxl,
-    maxHeight: '94%',
-    borderWidth: 1,
+  sheetInner: {
+    paddingTop: THEME.spacing.xs,
   },
   modalHeader: {
     flexDirection: 'row',

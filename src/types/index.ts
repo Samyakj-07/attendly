@@ -8,7 +8,7 @@ export type SubjectType =
   | 'Skill Enhancement'
   | 'Project';
 
-export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'CANCELLED' | 'OD' | 'NOT_MARKED';
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'CANCELLED' | 'OD';
 
 export type RiskLevel =
   | 'SAFE'
@@ -16,8 +16,7 @@ export type RiskLevel =
   | 'WATCH'
   | 'CRITICAL'
   | 'RECOVERING'
-  | 'RECOVERY_DIFFICULT'
-  | 'UNRECOVERABLE';
+  | 'RECOVERY_DIFFICULT';
 
 export interface IPUCollege {
   id: string;
@@ -92,6 +91,10 @@ export interface AttendanceRecord {
   isEdited?: boolean;
   editedAt?: string;
   proofUri?: string; // For OD/Medical slips
+  unitCount?: number; // Exact count of attendance units (for baseline or lab records)
+  attendedDelta?: number; // Explicit attended delta for manual adjustment records
+  totalDelta?: number; // Explicit total delta for manual adjustment records
+  isAdjustment?: boolean;
 }
 
 export interface AcademicExam {
@@ -100,28 +103,6 @@ export interface AcademicExam {
   type: 'Mid-Sem' | 'End-Sem' | 'Practical' | 'Internal' | 'Project';
   date: string; // "YYYY-MM-DD"
   subjectCode?: string;
-}
-
-export interface AcademicEvent {
-  id: string;
-  title: string;
-  date: string; // "YYYY-MM-DD"
-  type: 'University Holiday' | 'College Holiday' | 'Fest' | 'Exam' | 'Custom';
-  description?: string;
-}
-
-export interface InternalMarkEntry {
-  subjectId: string;
-  assignment: number;
-  maxAssignment: number;
-  quiz: number;
-  maxQuiz: number;
-  midSem: number;
-  maxMidSem: number;
-  practical: number;
-  maxPractical: number;
-  project: number;
-  maxProject: number;
 }
 
 export interface SkipAnalysisItem {

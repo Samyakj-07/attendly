@@ -5,10 +5,12 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
@@ -27,25 +29,14 @@ import {
   Sun,
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
-import { timeToMinutes } from '../utils/ipuEngine';
+import { timeToMinutes, getLocalDateString } from '../utils/ipuEngine';
+
+import { TIME_PRESETS } from '../constants/timetableConfig';
 
 const DAYS: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
-const TIME_PRESETS = [
-  { label: '09:30 – 10:30', start: '09:30', end: '10:30' },
-  { label: '10:30 – 11:30', start: '10:30', end: '11:30' },
-  { label: '11:30 – 12:30', start: '11:30', end: '12:30' },
-  { label: '12:30 – 01:30', start: '12:30', end: '01:30' },
-  { label: '01:30 – 02:30', start: '01:30', end: '02:30' },
-  { label: '02:30 – 03:30', start: '02:30', end: '03:30' },
-  { label: '03:30 – 04:30', start: '03:30', end: '04:30' },
-  { label: '04:30 – 05:30', start: '04:30', end: '05:30' },
-  { label: '11:30 – 01:30 (Lab)', start: '11:30', end: '01:30' },
-  { label: '01:30 – 03:30 (Lab)', start: '01:30', end: '03:30' },
-];
-
-export const TimetableScreen: React.FC = () => {
-  const { colors, isDark } = useTheme();
+export const TimetableScreen: React.FC = React.memo(() => {
+  const { colors } = useTheme();
   const { timetable, subjects, addTimetableSlot, addSubject, todayDay } = useAttendance();
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>(todayDay);
   const [weekOffset, setWeekOffset] = useState<number>(0);
@@ -60,7 +51,7 @@ export const TimetableScreen: React.FC = () => {
   const [slotType, setSlotType] = useState<SubjectType>('Theory');
   const [slotStartTime, setSlotStartTime] = useState('09:30');
   const [slotEndTime, setSlotEndTime] = useState('10:30');
-  const [slotRoom, setSlotRoom] = useState('A-204');
+  const [slotRoom, setSlotRoom] = useState('');
   const [slotFaculty, setSlotFaculty] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -80,7 +71,7 @@ export const TimetableScreen: React.FC = () => {
     monday.setHours(0, 0, 0, 0);
 
     const days: DayOfWeek[] = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-    const todayIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const todayIso = getLocalDateString(d);
 
     const map = {} as Record<
       DayOfWeek,
@@ -101,7 +92,7 @@ export const TimetableScreen: React.FC = () => {
     days.forEach((dk, i) => {
       const curDate = new Date(monday);
       curDate.setDate(monday.getDate() + i);
-      const dateStr = `${curDate.getFullYear()}-${String(curDate.getMonth() + 1).padStart(2, '0')}-${String(curDate.getDate()).padStart(2, '0')}`;
+      const dateStr = getLocalDateString(curDate);
       const dayNum = curDate.getDate();
       const monthName = curDate.toLocaleDateString('en-US', { month: 'short' });
       const isToday = dateStr === todayIso;
@@ -126,7 +117,7 @@ export const TimetableScreen: React.FC = () => {
   }, [weekOffset]);
 
   const selectedDayInfo = weekDates[selectedDay] || {
-    dateStr: new Date().toISOString().split('T')[0],
+    dateStr: getLocalDateString(),
     dayNum: new Date().getDate(),
     monthName: 'Aug',
     isPast: false,
@@ -176,10 +167,8 @@ export const TimetableScreen: React.FC = () => {
       finalSubjectName = customCourseName.trim();
       finalSubjectCode = code.toUpperCase();
 
-      // Create new subject in database
-      const newSubId = `sub_${Date.now()}`;
-      finalSubjectId = newSubId;
-      await addSubject({
+      // Create new subject in local state & storage
+      const createdSub = await addSubject({
         name: finalSubjectName,
         code: finalSubjectCode,
         type: slotType,
@@ -188,6 +177,7 @@ export const TimetableScreen: React.FC = () => {
         credits: 4,
         targetRequirement: 75,
       });
+      finalSubjectId = createdSub.id;
     } else {
       const existingSub = subjectMap.get(selectedSubjectId);
       if (existingSub) {
@@ -228,23 +218,31 @@ export const TimetableScreen: React.FC = () => {
     <SafeAreaView style={[styles.safeContainer, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Editorial Header */}
-        <View style={styles.headerRow}>
-          <View>
-            <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>WEEKLY SCHEDULE</Text>
-            <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Timetable.</Text>
+        <View style={styles.headerBox}>
+          <View style={styles.headerTopRow}>
+            <View style={{ flex: 1, paddingRight: 8 }}>
+              <Text style={[styles.screenEyebrow, { color: colors.textTertiary }]}>ACADEMIC TIMETABLE</Text>
+              <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Schedule.</Text>
+            </View>
+
+            <View style={styles.headerActions}>
+              {/* + Add Slot Button */}
+              <TouchableOpacity
+                style={[styles.addBtn, { backgroundColor: colors.navy }]}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Add new schedule slot"
+                onPress={handleOpenAddModal}
+              >
+                <Plus size={13} color={colors.textInverse} />
+                <Text style={[styles.addBtnText, { color: colors.textInverse }]}>Add Class</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <View style={styles.headerActions}>
-            {/* + Add Slot Button */}
-            <TouchableOpacity
-              style={[styles.addBtn, { backgroundColor: colors.textPrimary }]}
-              activeOpacity={0.8}
-              onPress={handleOpenAddModal}
-            >
-              <Plus size={13} color={colors.textInverse} />
-              <Text style={[styles.addBtnText, { color: colors.textInverse }]}>Add Class</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={[styles.screenSubtitle, { color: colors.textSecondary }]}>
+            {selectedDayInfo.formatted} · {daySlots.length} Scheduled {daySlots.length === 1 ? 'Period' : 'Periods'}
+          </Text>
         </View>
 
         {/* ─── Week Range Navigator ────────────────────────────────────── */}
@@ -304,7 +302,7 @@ export const TimetableScreen: React.FC = () => {
           <View style={[styles.sundayBanner, { backgroundColor: colors.amberSubtle, borderColor: colors.amber }]}>
             <Sun size={14} color={colors.amber} />
             <Text style={[styles.sundayBannerText, { color: colors.amber }]}>
-              Today is Sunday (Aug 16) · Academic schedule starts tomorrow
+              Today is Sunday ({new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}) · Academic schedule starts tomorrow
             </Text>
           </View>
         )}
@@ -321,8 +319,8 @@ export const TimetableScreen: React.FC = () => {
                 key={d}
                 style={[
                   styles.dayChip,
-                  { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
-                  isActive && { backgroundColor: colors.surfaceElevated, borderColor: colors.borderHighlight },
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  isActive && { borderColor: colors.navy, backgroundColor: colors.surface },
                 ]}
                 activeOpacity={0.7}
                 onPress={() => {
@@ -333,8 +331,8 @@ export const TimetableScreen: React.FC = () => {
                 <Text
                   style={[
                     styles.dayChipText,
-                    { color: colors.textTertiary },
-                    isActive && { color: colors.textPrimary },
+                    { color: colors.textSecondary },
+                    isActive && { color: colors.navy, fontWeight: '800' },
                   ]}
                 >
                   {d}
@@ -344,8 +342,8 @@ export const TimetableScreen: React.FC = () => {
                 <Text
                   style={[
                     styles.dayDateNumber,
-                    { color: colors.textSecondary },
-                    isActive && { color: colors.accent, fontWeight: '800' },
+                    { color: colors.textTertiary },
+                    isActive && { color: colors.navy, fontWeight: '800' },
                     dayInfo?.isToday && { color: colors.accent },
                   ]}
                 >
@@ -459,8 +457,17 @@ export const TimetableScreen: React.FC = () => {
       </ScrollView>
 
       {/* Manual Add Slot Modal */}
-      <Modal visible={isAddModalOpen} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+      <Modal
+        visible={isAddModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsAddModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
             <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
               <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Add Class to {selectedDay}</Text>
@@ -474,7 +481,7 @@ export const TimetableScreen: React.FC = () => {
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ padding: THEME.spacing.xl }}>
               {formError && (
-                <View style={[styles.errorBox, { backgroundColor: colors.crimsonSubtle, borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(200, 92, 92, 0.3)' }]}>
+                <View style={[styles.errorBox, { backgroundColor: colors.crimsonSubtle, borderColor: 'rgba(200, 92, 92, 0.3)' }]}>
                   <AlertCircle size={14} color={colors.crimson} />
                   <Text style={[styles.errorText, { color: colors.crimson }]}>{formError}</Text>
                 </View>
@@ -684,10 +691,11 @@ export const TimetableScreen: React.FC = () => {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
-};
+});
 
 const styles = StyleSheet.create({
   safeContainer: {
@@ -696,13 +704,15 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 100,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+  headerBox: {
     paddingHorizontal: THEME.spacing.xl,
     paddingTop: THEME.spacing.sm,
     paddingBottom: THEME.spacing.xs,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   screenEyebrow: {
     fontSize: 9,
@@ -715,11 +725,15 @@ const styles = StyleSheet.create({
     letterSpacing: THEME.typography.letterSpacing.tighter,
     lineHeight: 38,
   },
+  screenSubtitle: {
+    fontSize: THEME.typography.sizes.xs,
+    marginTop: 2,
+    fontWeight: THEME.typography.weights.medium,
+  },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 4,
   },
   addBtn: {
     flexDirection: 'row',

@@ -8,11 +8,24 @@ import {
 } from '../types';
 
 /**
+ * Formats a Date into standard YYYY-MM-DD in the device's local timezone.
+ * Prevents UTC midnight drift bugs caused by toISOString().
+ */
+export function getLocalDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Calculates raw attendance percentage clamped between 0 and 100.
  */
 export function attendancePercentage(attended: number, total: number): number {
-  if (total <= 0) return 100.0;
-  const pct = (attended / total) * 100;
+  if (!Number.isFinite(attended) || !Number.isFinite(total) || total <= 0) return 100.0;
+  const safeAttended = Math.max(0, attended);
+  const safeTotal = Math.max(1, total);
+  const pct = (safeAttended / safeTotal) * 100;
   return Math.min(100, Math.max(0, parseFloat(pct.toFixed(1))));
 }
 
@@ -21,10 +34,12 @@ export function attendancePercentage(attended: number, total: number): number {
  * Formula: floor((Attended - (Target * Total)) / Target)
  */
 export function classesCanMiss(attended: number, total: number, targetPct: number = 75): number {
-  if (total <= 0) return 0;
-  const t = targetPct / 100;
-  if (attended / total < t) return 0;
-  const allowable = Math.floor((attended - t * total) / t);
+  if (!Number.isFinite(attended) || !Number.isFinite(total) || total <= 0 || !Number.isFinite(targetPct) || targetPct <= 0) return 0;
+  const safeAttended = Math.max(0, attended);
+  const safeTotal = Math.max(1, total);
+  const t = Math.min(100, Math.max(1, targetPct)) / 100;
+  if (safeAttended / safeTotal < t) return 0;
+  const allowable = Math.floor((safeAttended - t * safeTotal) / t);
   return Math.max(0, allowable);
 }
 
@@ -33,11 +48,19 @@ export function classesCanMiss(attended: number, total: number, targetPct: numbe
  * Formula: ceil(((Target * Total) - Attended) / (1 - Target))
  */
 export function classesNeeded(attended: number, total: number, targetPct: number = 75): number {
-  if (total <= 0) return 0;
-  const t = targetPct / 100;
-  if (t >= 1) return 0; // 100% target
-  if (attended / total >= t) return 0;
-  const needed = Math.ceil((t * total - attended) / (1 - t));
+  if (!Number.isFinite(attended) || !Number.isFinite(total) || total <= 0 || !Number.isFinite(targetPct) || targetPct <= 0) return 0;
+  const safeAttended = Math.max(0, attended);
+  const safeTotal = Math.max(1, total);
+  const safeTarget = Math.min(100, Math.max(1, targetPct));
+  
+  if (safeTarget >= 100) {
+    return safeAttended >= safeTotal ? 0 : Infinity;
+  }
+  
+  const t = safeTarget / 100;
+  if (safeAttended / safeTotal >= t) return 0;
+  const rawNeeded = (t * safeTotal - safeAttended) / (1 - t);
+  const needed = Math.ceil(parseFloat(rawNeeded.toFixed(6)));
   return Math.max(0, needed);
 }
 
@@ -48,12 +71,14 @@ export function classesNeeded(attended: number, total: number, targetPct: number
  * 0: exactly on the line
  */
 export function attendanceBuffer(attended: number, total: number, targetPct: number = 75): number {
-  if (total <= 0) return 0;
-  const pct = (attended / total) * 100;
-  if (pct >= targetPct) {
-    return classesCanMiss(attended, total, targetPct);
+  if (!Number.isFinite(attended) || !Number.isFinite(total) || total <= 0) return 0;
+  const safeTarget = Number.isFinite(targetPct) && targetPct > 0 ? targetPct : 75;
+  const pct = (Math.max(0, attended) / Math.max(1, total)) * 100;
+  if (pct >= safeTarget) {
+    return classesCanMiss(attended, total, safeTarget);
   } else {
-    return -classesNeeded(attended, total, targetPct);
+    const needed = classesNeeded(attended, total, safeTarget);
+    return Number.isFinite(needed) ? -needed : -(Math.max(1, total) - Math.max(0, attended));
   }
 }
 
@@ -176,7 +201,7 @@ export function generateRecoveryRoadmap(
     reachedTarget: boolean;
   }> = [];
 
-  const maxSteps = Math.max(needed, 1);
+  const maxSteps = Number.isFinite(needed) ? Math.min(Math.max(needed, 1), 60) : 60;
   for (let i = 1; i <= maxSteps; i++) {
     const curAttended = attended + i;
     const curTotal = total + i;
@@ -246,10 +271,17 @@ export function analyzeTodaySkip(
     overallTotal += s.total;
   });
 
+  let todayTotalUnits = 0;
+  todaySlots.forEach(slot => {
+    const sub = subjectMap.get(slot.subjectId);
+    const isLab = sub?.isLab2x || slot.type === 'Lab' || slot.type === 'Practical';
+    todayTotalUnits += isLab ? 2 : 1;
+  });
+
   const overallCurrentPct = attendancePercentage(overallAttended, overallTotal);
   const overallIfSkipAllPct = attendancePercentage(
     overallAttended,
-    overallTotal + todaySlots.length
+    overallTotal + todayTotalUnits
   );
 
   const analyzedSlots: SkipAnalysisItem[] = [];
@@ -257,26 +289,43 @@ export function analyzeTodaySkip(
   let safestSubject: Subject | undefined;
   let maxBuffer = -999;
 
+  // Track cumulative skipped units per subject for compounding multi-period days
+  const subjectSkippedUnits = new Map<string, number>();
+
   for (const slot of todaySlots) {
     const subject = subjectMap.get(slot.subjectId);
     if (!subject) continue;
 
-    const currentPct = attendancePercentage(subject.attended, subject.total);
-    const postSkip = simulateMissClasses(subject.attended, subject.total, 1);
-    const bufferBefore = attendanceBuffer(subject.attended, subject.total, subject.targetRequirement || targetPct);
-    const bufferAfter = attendanceBuffer(postSkip.postAttended, postSkip.postTotal, subject.targetRequirement || targetPct);
+    const currentSkipped = subjectSkippedUnits.get(subject.id) || 0;
+    const isLab = subject.isLab2x || slot.type === 'Lab' || slot.type === 'Practical';
+    const missUnits = isLab ? 2 : 1;
+
+    // Simulate current state incorporating previously skipped slots today
+    const effectiveAttended = subject.attended;
+    const effectiveTotal = subject.total + currentSkipped;
+    const currentPct = attendancePercentage(effectiveAttended, effectiveTotal);
+
+    // Simulate skipping this additional slot
+    const postSkip = simulateMissClasses(effectiveAttended, effectiveTotal, missUnits);
+    const target = subject.targetRequirement || targetPct;
+    const bufferBefore = attendanceBuffer(effectiveAttended, effectiveTotal, target);
+    const bufferAfter = attendanceBuffer(postSkip.postAttended, postSkip.postTotal, target);
 
     let category: 'DO_NOT_MISS' | 'ATTEND_IF_POSSIBLE' | 'SAFEST_TO_MISS';
     let advice = '';
 
-    if (currentPct < (subject.targetRequirement || targetPct)) {
+    if (currentPct < target) {
       category = 'DO_NOT_MISS';
       advice = `Missing this drops you further to ${postSkip.postPct}%. Detain risk!`;
-      criticalSubjects.push(subject);
-    } else if (postSkip.postPct < (subject.targetRequirement || targetPct) || bufferBefore <= 1) {
+      if (!criticalSubjects.some(s => s.id === subject.id)) {
+        criticalSubjects.push(subject);
+      }
+    } else if (postSkip.postPct < target || bufferBefore <= 1) {
       category = 'DO_NOT_MISS';
-      advice = `Currently at ${currentPct}%. Skipping drops you below ${targetPct}% to ${postSkip.postPct}%.`;
-      criticalSubjects.push(subject);
+      advice = `Currently at ${currentPct}%. Skipping drops you below ${target}% to ${postSkip.postPct}%.`;
+      if (!criticalSubjects.some(s => s.id === subject.id)) {
+        criticalSubjects.push(subject);
+      }
     } else if (bufferBefore <= 3) {
       category = 'ATTEND_IF_POSSIBLE';
       advice = `Safe for now (+${bufferBefore} buffer), but skipping leaves only +${bufferAfter} buffer.`;
@@ -288,6 +337,9 @@ export function analyzeTodaySkip(
         safestSubject = subject;
       }
     }
+
+    // Accumulate skipped units for this subject for subsequent slot evaluations
+    subjectSkippedUnits.set(subject.id, currentSkipped + missUnits);
 
     analyzedSlots.push({
       subject,
@@ -345,10 +397,10 @@ export function calculateSemesterHealth(
       score: 100,
       status: 'OPTIMAL',
       summary: 'No subjects configured yet.',
-      attendanceScore: 100,
-      bufferScore: 100,
+      attendanceScore: 50,
+      bufferScore: 30,
       riskPenalty: 0,
-      consistencyScore: 100,
+      consistencyScore: 20,
     };
   }
 
@@ -471,25 +523,108 @@ export function predictInternalMarks(pct: number): {
   };
 }
 
-/**
- * Converts a time string (e.g. "09:30", "9:30", "10:10", "01:30", "3:30 PM")
- * into total minutes from midnight for perfect chronological sorting.
- */
 export function timeToMinutes(timeStr: string): number {
   if (!timeStr) return 0;
-  const clean = timeStr.trim();
+  // If a range is passed (e.g., "09:30 – 10:30"), extract the start time
+  const rawStart = timeStr.split(/[\u2010-\u2015\u2212\-]/)[0] || timeStr;
+  const clean = rawStart.trim();
   const isPM = clean.toLowerCase().includes('pm');
   const isAM = clean.toLowerCase().includes('am');
   const timeOnly = clean.replace(/(am|pm)/i, '').trim();
   const [hStr, mStr] = timeOnly.split(':');
-  let h = parseInt(hStr) || 0;
-  const m = parseInt(mStr) || 0;
+  let h = parseInt(hStr, 10) || 0;
+  const m = parseInt(mStr, 10) || 0;
 
-  // Handle standard 12-hour college afternoon slots (1 PM to 7 PM commonly entered as 01:30, 02:30, etc.)
-  if (h >= 1 && h <= 7 && !isAM) {
-    h += 12;
-  } else if (isPM && h < 12) {
-    h += 12;
+  if (isAM) {
+    if (h === 12) h = 0;
+  } else if (isPM) {
+    if (h < 12) h += 12;
+  } else {
+    // No explicit AM/PM:
+    // Hours 1..6 (e.g., "01:30", "2:00", "03:30", "06:00") map to afternoon/evening slots (13:00 - 18:00)
+    if (h >= 1 && h <= 6) {
+      h += 12;
+    }
+    // Hours 7..11 are standard morning/pre-noon slots (07:00 - 11:00) or 24-hr if >= 12
   }
+
   return h * 60 + m;
 }
+
+/**
+ * Standardize time strings (replaces unicode dashes, pads single-digit hours e.g. "9:30" -> "09:30", normalizes whitespace)
+ */
+export function normalizeTimeString(timeStr?: string): string {
+  if (!timeStr) return '';
+  const cleaned = timeStr
+    .replace(/[\u2010-\u2015\u2212]/g, '-') // Replace unicode dashes/hyphens with standard '-'
+    .replace(/\s*-\s*/g, ' - ') // Standardize spacing around hyphen
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Helper to pad HH:MM if single digit hour
+  const padTimeComponent = (part: string): string => {
+    const trimmed = part.trim();
+    const timeMatch = trimmed.match(/^(\d{1,2}):(\d{2})(.*)$/);
+    if (timeMatch) {
+      const paddedHour = timeMatch[1].padStart(2, '0');
+      return `${paddedHour}:${timeMatch[2]}${timeMatch[3]}`;
+    }
+    return trimmed;
+  };
+
+  if (cleaned.includes(' - ')) {
+    return cleaned.split(' - ').map(padTimeComponent).join(' - ');
+  }
+  return padTimeComponent(cleaned);
+}
+
+/**
+ * Robustly matches an attendance record to a timetable slot by time/range and optional day tag
+ */
+export function isSlotMatchingRecord(
+  recordSlotTime?: string,
+  recordNote?: string,
+  slotStartTime?: string,
+  slotEndTime?: string,
+  slotDay?: string
+): boolean {
+  if (!slotStartTime) return false;
+  const normRecTime = normalizeTimeString(recordSlotTime);
+  const normSlotStart = normalizeTimeString(slotStartTime);
+  const normSlotEnd = slotEndTime ? normalizeTimeString(slotEndTime) : '';
+  const fullSlotTime = normSlotEnd ? `${normSlotStart} - ${normSlotEnd}` : normSlotStart;
+
+  if (normRecTime) {
+    // 1. Exact full range match (e.g., "09:30 - 10:30" === "09:30 - 10:30")
+    if (normRecTime === fullSlotTime) return true;
+
+    // 2. If both specify ranges, do NOT loosely match just on start time if end times differ
+    if (normRecTime.includes(' - ') && normSlotEnd) {
+      return normRecTime === fullSlotTime;
+    }
+
+    // 3. If record only has start time or slot only has start time
+    if (!normRecTime.includes(' - ') || !normSlotEnd) {
+      const recStart = normRecTime.split(' - ')[0].trim();
+      if (recStart === normSlotStart) return true;
+    }
+  }
+
+  // 4. Fallback matching via recordNote
+  if (recordNote) {
+    // If note specifies a day (e.g. "Timetable: MON") and slotDay is specified but differs, do not match
+    if (slotDay && /Timetable:\s*(MON|TUE|WED|THU|FRI|SAT|SUN)/i.test(recordNote)) {
+      const dayMatch = recordNote.match(/Timetable:\s*(MON|TUE|WED|THU|FRI|SAT|SUN)/i);
+      if (dayMatch && dayMatch[1].toUpperCase() !== slotDay.toUpperCase()) {
+        return false;
+      }
+    }
+    if (fullSlotTime && recordNote.includes(fullSlotTime)) return true;
+    if (normSlotStart && recordNote.includes(normSlotStart)) return true;
+  }
+
+  return false;
+}
+
+

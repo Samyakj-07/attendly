@@ -1,8 +1,9 @@
-import { Platform } from 'react-native';
+import { Platform, AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ANALYTICS_CONFIG } from '../constants/analyticsConfig';
 
 interface QueuedEvent {
+  id: string;
   event: string;
   distinct_id: string;
   properties: Record<string, any>;
@@ -22,6 +23,7 @@ const STORAGE_KEYS = {
   DISTINCT_ID: '@attendly_distinct_id',
   OFFLINE_QUEUE: '@attendly_analytics_queue',
   USER_TRAITS: '@attendly_analytics_traits',
+  ENABLED: '@attendly_analytics_enabled',
 };
 
 class TelemetryEngine {
@@ -31,6 +33,8 @@ class TelemetryEngine {
   private isInitialized = false;
   private isFlushing = false;
   private flushTimer: any = null;
+  private appStateSubscription: any = null;
+  private isEnabled = true;
 
   /**
    * Initializes anonymous client identity and flushes queued offline events.
@@ -39,6 +43,12 @@ class TelemetryEngine {
     if (this.isInitialized) return;
 
     try {
+      // 0. Check user opt-out preference
+      const storedEnabled = await AsyncStorage.getItem(STORAGE_KEYS.ENABLED);
+      if (storedEnabled !== null) {
+        this.isEnabled = storedEnabled === 'true';
+      }
+
       // 1. Retrieve or generate anonymous client UUID
       let storedId = await AsyncStorage.getItem(STORAGE_KEYS.DISTINCT_ID);
       if (!storedId) {
@@ -70,14 +80,15 @@ class TelemetryEngine {
       this.isInitialized = true;
 
       if (ANALYTICS_CONFIG.ENABLE_DEBUG_LOGGING) {
-        console.log(`🚀 [Analytics] Initialized (ID: ${this.distinctId}, Queued: ${this.eventQueue.length})`);
+        console.log(`🚀 [Analytics] Initialized (ID: ${this.distinctId}, Queued: ${this.eventQueue.length}, Enabled: ${this.isEnabled})`);
       }
 
-      // 4. Start periodic flush timer
+      // 4. Start periodic flush timer and listen to AppState changes
       this.startFlushTimer();
+      this.setupAppStateListener();
 
       // 5. Initial flush
-      if (this.eventQueue.length > 0) {
+      if (this.isEnabled && this.eventQueue.length > 0) {
         this.flush();
       }
     } catch (err) {
@@ -86,10 +97,53 @@ class TelemetryEngine {
   }
 
   /**
+   * Listens to AppState changes to suspend flush timers when backgrounded.
+   */
+  private setupAppStateListener() {
+    if (this.appStateSubscription) {
+      this.appStateSubscription.remove();
+      this.appStateSubscription = null;
+    }
+
+    this.appStateSubscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      if (nextState === 'active') {
+        this.startFlushTimer();
+        if (this.isEnabled && this.eventQueue.length > 0) {
+          this.flush();
+        }
+      } else {
+        this.stopFlushTimer();
+      }
+    });
+  }
+
+  /**
+   * Get user telemetry opt-in status
+   */
+  async isTelemetryEnabled(): Promise<boolean> {
+    const stored = await AsyncStorage.getItem(STORAGE_KEYS.ENABLED);
+    return stored === null ? true : stored === 'true';
+  }
+
+  /**
+   * Toggle telemetry on/off
+   */
+  async setEnabled(enabled: boolean): Promise<void> {
+    this.isEnabled = enabled;
+    await AsyncStorage.setItem(STORAGE_KEYS.ENABLED, enabled ? 'true' : 'false');
+    if (!enabled) {
+      this.eventQueue = [];
+      this.userTraits = {};
+      await AsyncStorage.multiRemove([STORAGE_KEYS.OFFLINE_QUEUE, STORAGE_KEYS.USER_TRAITS]);
+    }
+  }
+
+  /**
    * Identifies user with anonymous academic traits (College, Branch, Semester, Target).
    * Note: No PII (names, roll numbers, personal notes) is ever recorded.
    */
   async identify(traits: AcademicTraits): Promise<void> {
+    if (!this.isEnabled) return;
     try {
       this.userTraits = {
         ...this.userTraits,
@@ -109,6 +163,7 @@ class TelemetryEngine {
    * Tracks a screen view event.
    */
   async screen(screenName: string, properties: Record<string, any> = {}): Promise<void> {
+    if (!this.isEnabled) return;
     await this.track('$pageview', {
       $screen_name: screenName,
       ...properties,
@@ -119,6 +174,12 @@ class TelemetryEngine {
    * Tracks a custom action or lifecycle event.
    */
   async track(event: string, properties: Record<string, any> = {}): Promise<void> {
+    if (!this.isEnabled || !ANALYTICS_CONFIG.POSTHOG_API_KEY) {
+      if (ANALYTICS_CONFIG.ENABLE_DEBUG_LOGGING && this.isEnabled) {
+        console.log(`📊 [Analytics Track (Local)] "${event}"`, properties);
+      }
+      return;
+    }
     try {
       if (!this.distinctId) {
         await this.init();
@@ -137,6 +198,7 @@ class TelemetryEngine {
       };
 
       const queuedEvent: QueuedEvent = {
+        id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         event,
         distinct_id: clientDistinctId,
         properties: payloadProperties,
@@ -151,8 +213,10 @@ class TelemetryEngine {
         this.eventQueue = this.eventQueue.slice(-ANALYTICS_CONFIG.MAX_OFFLINE_QUEUE_SIZE);
       }
 
-      // Persist offline queue
-      await AsyncStorage.setItem(STORAGE_KEYS.OFFLINE_QUEUE, JSON.stringify(this.eventQueue));
+      // Persist offline queue only if PostHog key is configured
+      if (ANALYTICS_CONFIG.POSTHOG_API_KEY) {
+        await AsyncStorage.setItem(STORAGE_KEYS.OFFLINE_QUEUE, JSON.stringify(this.eventQueue));
+      }
 
       if (ANALYTICS_CONFIG.ENABLE_DEBUG_LOGGING) {
         console.log(`📊 [Analytics Track] "${event}"`, properties);
@@ -168,14 +232,18 @@ class TelemetryEngine {
   }
 
   /**
-   * Flushes queued events to PostHog ingestion endpoint.
+   * Flushes queued events to PostHog ingestion endpoint safely without AbortSignal.timeout
    */
   async flush(): Promise<void> {
-    if (this.isFlushing || this.eventQueue.length === 0) return;
+    if (!this.isEnabled || this.isFlushing || this.eventQueue.length === 0) return;
     if (!ANALYTICS_CONFIG.POSTHOG_API_KEY) return;
 
     this.isFlushing = true;
     const batchToSend = [...this.eventQueue];
+
+    // Hermes-safe abort controller with timeout
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), 10000) : null;
 
     try {
       const formattedBatch = batchToSend.map(item => ({
@@ -199,13 +267,15 @@ class TelemetryEngine {
           api_key: ANALYTICS_CONFIG.POSTHOG_API_KEY,
           batch: formattedBatch,
         }),
+        signal: controller ? controller.signal : undefined,
       });
 
+      if (timer) clearTimeout(timer);
+
       if (response.ok) {
-        // Remove sent events from queue
-        this.eventQueue = this.eventQueue.filter(
-          item => !batchToSend.some(sent => sent.timestamp === item.timestamp && sent.event === item.event)
-        );
+        // Remove sent events from queue by ID
+        const sentIds = new Set(batchToSend.map(b => b.id));
+        this.eventQueue = this.eventQueue.filter(item => !sentIds.has(item.id));
         await AsyncStorage.setItem(STORAGE_KEYS.OFFLINE_QUEUE, JSON.stringify(this.eventQueue));
 
         if (ANALYTICS_CONFIG.ENABLE_DEBUG_LOGGING) {
@@ -216,6 +286,7 @@ class TelemetryEngine {
         console.warn(`⚠️ [Analytics Flush Error] HTTP ${response.status}:`, errorText);
       }
     } catch (err) {
+      if (timer) clearTimeout(timer);
       // Network drop or offline: events remain safely queued for next reconnect
       if (ANALYTICS_CONFIG.ENABLE_DEBUG_LOGGING) {
         console.log(`⏳ [Analytics Queue] Kept ${this.eventQueue.length} events in local buffer`);
@@ -230,6 +301,13 @@ class TelemetryEngine {
     this.flushTimer = setInterval(() => {
       this.flush();
     }, ANALYTICS_CONFIG.FLUSH_INTERVAL_MS);
+  }
+
+  private stopFlushTimer() {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
   }
 }
 

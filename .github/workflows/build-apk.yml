@@ -33,6 +33,12 @@ jobs:
       - name: 📦 Install Node Dependencies
         run: npm install --legacy-peer-deps
 
+      - name: 🔍 TypeScript Type Check
+        run: npm run ts:check
+
+      - name: 🧪 Run Automated Test Suite
+        run: npm test
+
       - name: 🏗️ Generate Native Android Project (Expo Prebuild)
         run: npx expo prebuild --platform android --clean
 
@@ -47,12 +53,26 @@ jobs:
 
       - name: 🔑 Configure Release Signing
         working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'attendly-key' }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # Generate self-signed keystore if release keystore doesn't exist
-          keytool -genkey -v -keystore app/release.keystore -alias attendly-key -keyalg RSA -keysize 2048 -validity 10000 -storepass attendly123 -keypass attendly123 -dname "CN=Attendly, OU=Engineering, O=Attendly, L=Delhi, S=Delhi, C=IN"
+          # Use provided secrets or generate random ephemeral signing credentials
+          KS_PASS="${KEYSTORE_PASSWORD:-$(openssl rand -hex 16)}"
+          K_PASS="${KEY_PASSWORD:-$KS_PASS}"
+          
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding persistent release keystore from GitHub Secrets..."
+            echo "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
+          elif [ ! -f "app/release.keystore" ]; then
+            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret found. Generating ephemeral CI build keystore. Note: App updates will require uninstalling previous builds unless persistent secrets are configured."
+            keytool -genkey -v -keystore app/release.keystore -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KS_PASS" -keypass "$K_PASS" -dname "CN=Attendly, OU=Engineering, O=Attendly, L=Delhi, S=Delhi, C=IN"
+          fi
           
           # Inject release signing config into android/app/build.gradle
-          sed -i 's/signingConfigs {/signingConfigs {\n        release {\n            storeFile file("release.keystore")\n            storePassword "attendly123"\n            keyAlias "attendly-key"\n            keyPassword "attendly123"\n        }/' app/build.gradle
+          sed -i "s/signingConfigs {/signingConfigs {\n        release {\n            storeFile file(\"release.keystore\")\n            storePassword \"$KS_PASS\"\n            keyAlias \"$KEY_ALIAS\"\n            keyPassword \"$K_PASS\"\n        }/" app/build.gradle
           sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/' app/build.gradle
 
       - name: ⚡ Build Standalone APK with Gradle

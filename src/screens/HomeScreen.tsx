@@ -5,10 +5,12 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
@@ -35,24 +37,21 @@ import {
   Calendar,
 } from 'lucide-react-native';
 import { AppHaptics } from '../utils/haptics';
-import { attendancePercentage, attendanceBuffer, timeToMinutes } from '../utils/ipuEngine';
-
-const TIME_PRESETS = [
-  { label: '09:30 – 10:30', start: '09:30', end: '10:30' },
-  { label: '10:30 – 11:30', start: '10:30', end: '11:30' },
-  { label: '11:30 – 12:30', start: '11:30', end: '12:30' },
-  { label: '01:30 – 02:30', start: '01:30', end: '02:30' },
-  { label: '02:30 – 03:30', start: '02:30', end: '03:30' },
-  { label: '03:30 – 04:30', start: '03:30', end: '04:30' },
-  { label: '04:30 – 05:30', start: '04:30', end: '05:30' },
-];
+import {
+  attendancePercentage,
+  attendanceBuffer,
+  timeToMinutes,
+  isSlotMatchingRecord,
+  getLocalDateString,
+} from '../utils/ipuEngine';
+import { TIME_PRESETS } from '../constants/timetableConfig';
 
 interface HomeScreenProps {
   onNavigateTab: (tab: any) => void;
 }
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
-  const { colors, isDark } = useTheme();
+export const HomeScreen: React.FC<HomeScreenProps> = React.memo(({ onNavigateTab }) => {
+  const { colors } = useTheme();
   const {
     todaySlots,
     todayDay,
@@ -65,6 +64,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     markAllSlotsAttendance,
     addTimetableSlot,
     profile,
+    lastActionBatch,
   } = useAttendance();
 
   const [isSkipModalOpen, setIsSkipModalOpen] = useState(false);
@@ -83,11 +83,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
   const target = profile.targetAttendance || 75;
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString();
   const tomorrowIso = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return getLocalDateString(d);
   }, []);
 
   const mondaySlots = useMemo(() => {
@@ -103,7 +103,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         r =>
           r.subjectId === slot.subjectId &&
           r.date === todayStr &&
-          (r.slotTime?.includes(slot.startTime) || r.note?.includes(slot.day)) &&
+          isSlotMatchingRecord(r.slotTime, r.note, slot.startTime, slot.endTime, slot.day) &&
           r.status === 'PRESENT'
       )
     );
@@ -118,23 +118,38 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
     if (belowTarget.length === 0) return null;
 
-    // Sort by largest shortage (most negative buffer) then lowest percentage
-    return [...belowTarget].sort((a, b) => {
-      const bufA = attendanceBuffer(a.attended, a.total, a.targetRequirement || target);
-      const bufB = attendanceBuffer(b.attended, b.total, b.targetRequirement || target);
-      if (bufA !== bufB) return bufA - bufB;
-      return (
-        attendancePercentage(a.attended, a.total) -
-        attendancePercentage(b.attended, b.total)
-      );
-    })[0];
+    return belowTarget.reduce((prev, curr) => {
+      const prevPct = attendancePercentage(prev.attended, prev.total);
+      const currPct = attendancePercentage(curr.attended, curr.total);
+      return currPct < prevPct ? curr : prev;
+    });
   }, [subjects, target]);
 
-  const subjectMap = new Map<string, Subject>();
-  subjects.forEach(s => subjectMap.set(s.id, s));
+  // Find the subject with highest positive buffer
+  const bufferStarSubject = useMemo(() => {
+    const subjectsWithClasses = subjects.filter(s => s.total > 0);
+    if (subjectsWithClasses.length === 0) return null;
 
-  const hasRecentAction = records.length > 0;
+    const withBuffer = subjectsWithClasses.map(s => ({
+      subject: s,
+      buf: attendanceBuffer(s.attended, s.total, s.targetRequirement || target),
+      pct: attendancePercentage(s.attended, s.total),
+    })).filter(item => item.buf > 0);
+
+    if (withBuffer.length === 0) return null;
+
+    withBuffer.sort((a, b) => b.buf - a.buf || b.pct - a.pct);
+    return withBuffer[0];
+  }, [subjects, target]);
+
+  const subjectMap = useMemo(() => {
+    const map = new Map<string, Subject>();
+    subjects.forEach(s => map.set(s.id, s));
+    return map;
+  }, [subjects]);
+
   const lastRecord = records[0];
+  const hasRecentAction = !!lastActionBatch && !!lastRecord;
 
   // 1-Tap Mark Full Day Present (Atomic batch, safe from duplicates)
   const handleMarkAllTodayPresent = async () => {
@@ -161,7 +176,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
     await markAttendance(sub.id, status, {
       time: `${extraStart} - ${extraEnd}`,
       room: extraRoom.trim() || sub.room || 'Extra Class',
-      note: `Extra Class (${todayDay})`,
+      note: isSunday ? 'Extra Class (Sunday)' : `Extra Class (${todayDay})`,
     });
     setIsExtraClassModalOpen(false);
   };
@@ -172,7 +187,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
 
     AppHaptics.success();
     await addTimetableSlot({
-      day: todayDay as DayOfWeek,
+      day: isSunday ? 'MON' : (todayDay as DayOfWeek),
       startTime: extraStart.trim() || '03:30',
       endTime: extraEnd.trim() || '04:30',
       subjectId: sub.id,
@@ -196,7 +211,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
         {/* 2. Main Kinetic Ring Hero */}
         <AttendanceHero
           onOpenSimulator={() => setIsSimulatorOpen(true)}
-          onOpenSkipModal={() => setIsSkipModalOpen(true)}
+          onOpenMarks={() => onNavigateTab?.('INSIGHTS')}
         />
 
         {/* 3. Undo / Recent Action Banner */}
@@ -208,26 +223,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 Marked {lastRecord.status.toLowerCase()} for {lastRecord.subjectCode}
               </Text>
             </View>
-            <TouchableOpacity style={styles.undoBtn} onPress={() => undoLastAction()}>
+            <TouchableOpacity
+              style={styles.undoBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Undo last marked attendance action"
+              onPress={() => undoLastAction()}
+            >
               <RotateCcw size={12} color={colors.accent} />
               <Text style={[styles.undoBtnText, { color: colors.accent }]}>Undo</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {/* 4. Quick Action Bento Decision Cards */}
-        <View style={styles.decisionRow}>
+        {/* 4. Interactive Editorial Action Strips (Replacing side-by-side cards) */}
+        <View style={styles.actionStripsContainer}>
           <TouchableOpacity
             style={[
-              styles.decisionCard,
+              styles.actionStrip,
               {
                 backgroundColor: colors.surface,
                 borderColor: colors.borderSubtle,
-                shadowColor: colors.accent,
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: isDark ? 0.15 : 0.05,
-                shadowRadius: 12,
-                elevation: 4,
               },
             ]}
             activeOpacity={0.75}
@@ -236,24 +252,25 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               setIsSkipModalOpen(true);
             }}
           >
-            <View style={[styles.decisionIcon, { backgroundColor: colors.accentSubtle, borderColor: colors.borderHighlight }]}>
-              <CalendarCheck size={16} color={colors.accent} />
+            <View style={styles.actionStripLeft}>
+              <View style={[styles.actionStripIconBadge, { backgroundColor: '#E8F0FF' }]}>
+                <CalendarCheck size={16} color={colors.navy} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.actionStripTitle, { color: colors.textPrimary }]}>Can I skip today?</Text>
+                <Text style={[styles.actionStripSub, { color: colors.textTertiary }]}>Check attendance threshold & safety buffer</Text>
+              </View>
             </View>
-            <Text style={[styles.decisionTitle, { color: colors.textPrimary }]}>Can I Skip Today?</Text>
-            <Text style={[styles.decisionSub, { color: colors.textTertiary }]}>Check attendance threshold & safety buffer</Text>
+            <ChevronRight size={16} color={colors.textTertiary} />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[
-              styles.decisionCard,
+              styles.actionStrip,
               {
                 backgroundColor: colors.surface,
                 borderColor: colors.borderSubtle,
-                shadowColor: colors.indigo,
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: isDark ? 0.15 : 0.05,
-                shadowRadius: 12,
-                elevation: 4,
+                marginTop: 8,
               },
             ]}
             activeOpacity={0.75}
@@ -262,11 +279,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               setIsSimulatorOpen(true);
             }}
           >
-            <View style={[styles.decisionIcon, { backgroundColor: colors.indigoSubtle, borderColor: colors.borderHighlight }]}>
-              <Sparkles size={16} color={colors.indigo} />
+            <View style={styles.actionStripLeft}>
+              <View style={[styles.actionStripIconBadge, { backgroundColor: '#E8F0FF' }]}>
+                <Sparkles size={16} color={colors.navy} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.actionStripTitle, { color: colors.textPrimary }]}>What-If Simulator</Text>
+                <Text style={[styles.actionStripSub, { color: colors.textTertiary }]}>Miss a class or attend consecutively. See what changes</Text>
+              </View>
             </View>
-            <Text style={[styles.decisionTitle, { color: colors.textPrimary }]}>What-If Simulator</Text>
-            <Text style={[styles.decisionSub, { color: colors.textTertiary }]}>Model upcoming attendance & bunk plans</Text>
+            <ChevronRight size={16} color={colors.textTertiary} />
           </TouchableOpacity>
         </View>
 
@@ -301,10 +323,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
               styles.attentionCard,
               {
                 backgroundColor: colors.surface,
-                borderColor: isDark ? 'rgba(244, 63, 94, 0.35)' : 'rgba(244, 63, 94, 0.25)',
+                borderColor: 'rgba(244, 63, 94, 0.25)',
                 shadowColor: colors.crimson,
                 shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: isDark ? 0.2 : 0.08,
+                shadowOpacity: 0.08,
                 shadowRadius: 16,
                 elevation: 6,
               },
@@ -374,8 +396,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                     backgroundColor: areAllTodayMarked ? colors.surfaceSubtle : colors.emeraldSubtle,
                     borderColor: areAllTodayMarked
                       ? colors.borderSubtle
-                      : isDark
-                      ? 'rgba(16, 185, 129, 0.25)'
                       : 'rgba(46, 139, 99, 0.25)',
                   },
                 ]}
@@ -509,8 +529,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       </ScrollView>
 
       {/* ─── EXTRA CLASS MODAL ─────────────────────────────────────── */}
-      <Modal visible={isExtraClassModalOpen} animationType="slide" transparent>
-        <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
+      <Modal
+        visible={isExtraClassModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsExtraClassModalOpen(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
           <View style={[styles.modalContent, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
             {/* Modal Header */}
             <View style={[styles.modalHeader, { borderBottomColor: colors.borderSubtle }]}>
@@ -644,7 +673,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.logAbsentBtn, { backgroundColor: colors.crimsonSubtle, borderColor: isDark ? 'rgba(239,68,68,0.3)' : 'rgba(200,92,92,0.3)' }]}
+                  style={[styles.logAbsentBtn, { backgroundColor: colors.crimsonSubtle, borderColor: 'rgba(200,92,92,0.3)' }]}
                   activeOpacity={0.85}
                   onPress={() => handleLogExtraAttendance('ABSENT')}
                 >
@@ -667,6 +696,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modals */}
@@ -695,7 +725,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigateTab }) => {
       />
     </SafeAreaView>
   );
-};
+});
 
 const styles = StyleSheet.create({
   safeContainer: {
@@ -741,32 +771,41 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: THEME.typography.weights.bold,
   },
-  decisionRow: {
-    flexDirection: 'row',
-    gap: 8,
+  actionStripsContainer: {
     marginHorizontal: THEME.spacing.xl,
     marginBottom: THEME.spacing.md,
   },
-  decisionCard: {
-    flex: 1,
-    borderRadius: THEME.borderRadius.md,
-    padding: 12,
+  actionStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: THEME.borderRadius.lg,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderWidth: 1,
   },
-  decisionIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
+  actionStripLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    paddingRight: 8,
+  },
+  actionStripIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
   },
-  decisionTitle: {
-    fontSize: 12,
-    fontWeight: THEME.typography.weights.bold,
+  actionStripTitle: {
+    fontSize: 13,
+    fontWeight: THEME.typography.weights.heavy,
+    letterSpacing: -0.2,
   },
-  decisionSub: {
-    fontSize: 10,
+  actionStripSub: {
+    fontSize: 11,
+    fontWeight: THEME.typography.weights.medium,
     marginTop: 2,
   },
   attentionCard: {

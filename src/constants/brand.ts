@@ -1,6 +1,6 @@
 export const BRAND = {
   name: 'Attendly',
-  displayName: 'attendly',
+  displayName: 'Attendly',
   tagline: 'Stay ahead of attendance.',
   shortTagline: 'Know where you stand.',
   version: '1.0.0',

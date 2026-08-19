@@ -7,9 +7,11 @@ import {
   ScrollView,
   TextInput,
   Modal,
-  SafeAreaView,
   Image,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { THEME } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 import { useAttendance } from '../context/AttendanceContext';
@@ -34,17 +36,27 @@ import { Analytics } from '../utils/analytics';
 const APP_LOGO = require('../../assets/icon.png');
 
 export const OnboardingScreen: React.FC = () => {
-  const { colors, shadows, isDark } = useTheme();
+  const { colors, shadows } = useTheme();
   const { updateProfile } = useAttendance();
 
   const [name, setName] = useState('');
-  const [selectedCollege, setSelectedCollege] = useState(IPU_COLLEGES[0]); // First college (USICT)
+  const [selectedCollege, setSelectedCollege] = useState<{ id: string; name: string; shortName: string; campus?: string }>(IPU_COLLEGES[0]); // Default first college (USICT)
   const [searchQuery, setSearchQuery] = useState('');
+  const [isCustomMode, setIsCustomMode] = useState(false);
+  const [customCollegeFullName, setCustomCollegeFullName] = useState('');
+  const [customCollegeShortName, setCustomCollegeShortName] = useState('');
   const [selectedProgramme, setSelectedProgramme] = useState('B.Tech');
   const [selectedBranch, setSelectedBranch] = useState(IPU_BTECH_BRANCHES[0]);
+  const [customBranch, setCustomBranch] = useState('');
   const [selectedSemester, setSelectedSemester] = useState(1);
   const [section, setSection] = useState('');
-  const [academicSession, setAcademicSession] = useState('2026–27');
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const defaultSession = currentMonth < 6
+    ? `${currentYear - 1}–${currentYear.toString().slice(2)}`
+    : `${currentYear}–${(currentYear + 1).toString().slice(2)}`;
+  const [academicSession, setAcademicSession] = useState(defaultSession);
   const [rollNumber, setRollNumber] = useState('');
   const [targetPct, setTargetPct] = useState('75');
 
@@ -61,18 +73,21 @@ export const OnboardingScreen: React.FC = () => {
       ? IPU_BTECH_BRANCHES
       : IPU_GENERIC_BRANCHES[selectedProgramme] || ['Standard Branch'];
 
+  const finalBranch = customBranch.trim() ? customBranch.trim() : selectedBranch;
+
   const handleFinish = async () => {
     AppHaptics.success();
-    const target = parseInt(targetPct) || 75;
+    const parsedTarget = parseInt(targetPct, 10);
+    const target = Number.isFinite(parsedTarget) ? Math.min(100, Math.max(1, parsedTarget)) : 75;
     const newProfile: StudentProfile = {
       name: name.trim() || 'Student',
       college: selectedCollege.name,
       collegeShort: selectedCollege.shortName,
       programme: selectedProgramme,
-      branch: selectedBranch,
+      branch: finalBranch,
       semester: selectedSemester,
       section: section.trim() || '1A',
-      academicSession: academicSession.trim() || '2026–27',
+      academicSession: academicSession.trim() || defaultSession,
       rollNumber: rollNumber.trim(),
       enrollmentNumber: rollNumber.trim(),
       targetAttendance: target,
@@ -80,11 +95,12 @@ export const OnboardingScreen: React.FC = () => {
       isOnboarded: true,
     };
 
+
     Analytics.identify({
       college: selectedCollege.name,
       collegeShort: selectedCollege.shortName,
       programme: selectedProgramme,
-      branch: selectedBranch,
+      branch: finalBranch,
       semester: selectedSemester,
       targetAttendance: target,
     });
@@ -93,7 +109,7 @@ export const OnboardingScreen: React.FC = () => {
       college_short: selectedCollege.shortName,
       college_name: selectedCollege.name,
       programme: selectedProgramme,
-      branch: selectedBranch,
+      branch: finalBranch,
       semester: selectedSemester,
       target_attendance: target,
     });
@@ -103,17 +119,22 @@ export const OnboardingScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={[styles.safeContainer, { backgroundColor: colors.background }]}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
       >
-        {/* ─── HERO BRAND HEADER ─────────────────────────────────────── */}
-        <View style={styles.heroSection}>
-          <View style={[styles.logoContainer, { shadowColor: colors.accent }]}>
-            <Image source={APP_LOGO} style={styles.heroLogo} />
-          </View>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* ─── HERO BRAND HEADER ─────────────────────────────────────── */}
+          <View style={styles.heroSection}>
+            <View style={[styles.logoContainer, { shadowColor: colors.accent }]}>
+              <Image source={APP_LOGO} style={styles.heroLogo} />
+            </View>
 
-          <Text style={[styles.heroTitle, { color: colors.textPrimary }]}>attendly</Text>
+          <Text style={[styles.heroTitle, { color: colors.textPrimary }]}>Attendly</Text>
           <Text style={[styles.heroTagline, { color: colors.accent }]}>STAY AHEAD OF ATTENDANCE.</Text>
           <Text style={[styles.heroSubtitle, { color: colors.textSecondary }]}>
             Set up your academic profile to track courses, predictive models, and safe skips.
@@ -239,33 +260,64 @@ export const OnboardingScreen: React.FC = () => {
 
           {/* Branch / Specialization */}
           <View style={styles.fieldGroup}>
-            <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>BRANCH / SPECIALIZATION</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-              {availableBranches.map(branch => (
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>BRANCH / SPECIALIZATION</Text>
+              {customBranch.length > 0 && (
+                <TouchableOpacity onPress={() => setCustomBranch('')}>
+                  <Text style={{ fontSize: 9.5, color: colors.accent, fontWeight: 'bold' }}>Reset to standard</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {customBranch.length === 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
+                {availableBranches.map(branch => (
+                  <TouchableOpacity
+                    key={branch}
+                    style={[
+                      styles.pillItem,
+                      { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
+                      selectedBranch === branch && { backgroundColor: colors.accentSubtle, borderColor: colors.accent },
+                    ]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      setSelectedBranch(branch);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.pillItemText,
+                        { color: colors.textSecondary },
+                        selectedBranch === branch && { color: colors.accent, fontWeight: 'bold' },
+                      ]}
+                    >
+                      {branch}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
                 <TouchableOpacity
-                  key={branch}
-                  style={[
-                    styles.pillItem,
-                    { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle },
-                    selectedBranch === branch && { backgroundColor: colors.accentSubtle, borderColor: colors.accent },
-                  ]}
+                  style={[styles.pillItem, { backgroundColor: colors.surfaceSubtle, borderColor: colors.borderSubtle, borderStyle: 'dashed' }]}
                   onPress={() => {
-                    AppHaptics.selection();
-                    setSelectedBranch(branch);
+                    AppHaptics.light();
+                    setCustomBranch('Computer Engineering');
                   }}
                 >
-                  <Text
-                    style={[
-                      styles.pillItemText,
-                      { color: colors.textSecondary },
-                      selectedBranch === branch && { color: colors.accent, fontWeight: 'bold' },
-                    ]}
-                  >
-                    {branch}
-                  </Text>
+                  <Text style={[styles.pillItemText, { color: colors.accent, fontWeight: 'bold' }]}>+ Other Branch</Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
+              </ScrollView>
+            ) : (
+              <TextInput
+                style={[
+                  styles.textInput,
+                  { backgroundColor: colors.surfaceSubtle, color: colors.textPrimary, borderColor: colors.accent },
+                ]}
+                placeholder="e.g. Software Engineering / Data Science"
+                placeholderTextColor={colors.textTertiary}
+                value={customBranch}
+                onChangeText={setCustomBranch}
+                autoFocus
+              />
+            )}
           </View>
 
           {/* Semester Selector */}
@@ -324,7 +376,7 @@ export const OnboardingScreen: React.FC = () => {
               backgroundColor: colors.accent,
               shadowColor: colors.accent,
               shadowOffset: { width: 0, height: 6 },
-              shadowOpacity: isDark ? 0.35 : 0.2,
+              shadowOpacity: 0.2,
               shadowRadius: 18,
               elevation: 8,
             },
@@ -338,60 +390,165 @@ export const OnboardingScreen: React.FC = () => {
           <ArrowRight size={16} color="#FFFFFF" />
         </TouchableOpacity>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ─── COLLEGE SEARCH MODAL ───────────────────────────────────── */}
-      <Modal visible={isCollegeModalOpen} animationType="slide" transparent>
+      <Modal
+        visible={isCollegeModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setIsCollegeModalOpen(false);
+          setIsCustomMode(false);
+        }}
+      >
         <View style={[styles.modalOverlay, { backgroundColor: colors.modalOverlay }]}>
           <View style={[styles.collegeModalBox, { backgroundColor: colors.background, borderColor: colors.borderLight }]}>
             <Text style={[styles.modalHeaderTitle, { color: colors.textPrimary }]}>Select Your College</Text>
 
-            <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
-              <Search size={16} color={colors.textTertiary} />
-              <TextInput
-                style={[styles.searchInput, { color: colors.textPrimary }]}
-                placeholder="Search college name or abbreviation..."
-                placeholderTextColor={colors.textTertiary}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
+            {/* Custom Mode Toggle */}
+            <View style={[styles.collegeModeToggleRow, { backgroundColor: colors.surfaceSubtle }]}>
+              <TouchableOpacity
+                style={[styles.collegeModeTab, !isCustomMode && [styles.collegeModeTabActive, { backgroundColor: colors.surfaceElevated }]]}
+                onPress={() => setIsCustomMode(false)}
+              >
+                <Text style={[styles.collegeModeTabText, { color: colors.textTertiary }, !isCustomMode && { color: colors.textPrimary, fontWeight: 'bold' }]}>
+                  Predefined Colleges
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.collegeModeTab, isCustomMode && [styles.collegeModeTabActive, { backgroundColor: colors.surfaceElevated }]]}
+                onPress={() => setIsCustomMode(true)}
+              >
+                <Text style={[styles.collegeModeTabText, { color: colors.textTertiary }, isCustomMode && { color: colors.textPrimary, fontWeight: 'bold' }]}>
+                  + Custom / Other
+                </Text>
+              </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={{ paddingVertical: 8 }} showsVerticalScrollIndicator={false}>
-              {filteredColleges.map(college => {
-                const isSelected = selectedCollege.id === college.id;
-                return (
-                  <TouchableOpacity
-                    key={college.id}
-                    style={[
-                      styles.collegeRow,
-                      { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
-                      isSelected && { borderColor: colors.accent, backgroundColor: colors.surfaceElevated },
-                    ]}
-                    onPress={() => {
-                      AppHaptics.selection();
-                      setSelectedCollege(college);
-                      setIsCollegeModalOpen(false);
-                      setSearchQuery('');
-                    }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.collegeShort, { color: colors.textPrimary }, isSelected && { color: colors.accent }]}>
-                        {college.shortName}
-                      </Text>
-                      <Text style={[styles.collegeFullName, { color: colors.textSecondary }]} numberOfLines={2}>
-                        {college.name}
-                      </Text>
-                      <Text style={[styles.collegeCampus, { color: colors.textTertiary }]}>{college.campus}</Text>
-                    </View>
-                    {isSelected && <Check size={18} color={colors.accent} />}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+            {!isCustomMode ? (
+              <>
+                <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.borderSubtle }]}>
+                  <Search size={16} color={colors.textTertiary} />
+                  <TextInput
+                    style={[styles.searchInput, { color: colors.textPrimary }]}
+                    placeholder="Search college name or abbreviation..."
+                    placeholderTextColor={colors.textTertiary}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                  />
+                </View>
+
+                <ScrollView contentContainerStyle={{ paddingVertical: 8 }} showsVerticalScrollIndicator={false}>
+                  {filteredColleges.length === 0 && searchQuery.trim().length > 0 && (
+                    <TouchableOpacity
+                      style={[styles.collegeRow, { borderColor: colors.accent, backgroundColor: colors.accentSubtle }]}
+                      onPress={() => {
+                        AppHaptics.success();
+                        const short = searchQuery.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 5) || 'COLLEGE';
+                        setSelectedCollege({
+                          id: `custom_${Date.now()}`,
+                          name: searchQuery.trim(),
+                          shortName: short,
+                          campus: 'Custom Institute',
+                        });
+                        setIsCollegeModalOpen(false);
+                        setSearchQuery('');
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.collegeShort, { color: colors.accent }]}>+ Use Custom Name</Text>
+                        <Text style={[styles.collegeFullName, { color: colors.textPrimary }]}>"{searchQuery.trim()}"</Text>
+                        <Text style={[styles.collegeCampus, { color: colors.textTertiary }]}>Tap to select as your college</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+
+                  {filteredColleges.map(college => {
+                    const isSelected = selectedCollege.id === college.id;
+                    return (
+                      <TouchableOpacity
+                        key={college.id}
+                        style={[
+                          styles.collegeRow,
+                          { backgroundColor: colors.surface, borderColor: colors.borderSubtle },
+                          isSelected && { borderColor: colors.accent, backgroundColor: colors.surfaceElevated },
+                        ]}
+                        onPress={() => {
+                          AppHaptics.selection();
+                          setSelectedCollege(college);
+                          setIsCollegeModalOpen(false);
+                          setSearchQuery('');
+                        }}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.collegeShort, { color: colors.textPrimary }, isSelected && { color: colors.accent }]}>
+                            {college.shortName}
+                          </Text>
+                          <Text style={[styles.collegeFullName, { color: colors.textSecondary }]} numberOfLines={2}>
+                            {college.name}
+                          </Text>
+                          <Text style={[styles.collegeCampus, { color: colors.textTertiary }]}>{college.campus}</Text>
+                        </View>
+                        {isSelected && <Check size={18} color={colors.accent} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            ) : (
+              <ScrollView contentContainerStyle={{ paddingVertical: 12 }} showsVerticalScrollIndicator={false}>
+                <View style={styles.fieldGroup}>
+                  <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>COLLEGE / UNIVERSITY FULL NAME</Text>
+                  <TextInput
+                    style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
+                    placeholder="e.g. Delhi Technological University"
+                    placeholderTextColor={colors.textTertiary}
+                    value={customCollegeFullName}
+                    onChangeText={setCustomCollegeFullName}
+                  />
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={[styles.fieldLabel, { color: colors.textTertiary }]}>SHORT ABBREVIATION (CODE)</Text>
+                  <TextInput
+                    style={[styles.textInput, { backgroundColor: colors.surface, color: colors.textPrimary, borderColor: colors.borderSubtle }]}
+                    placeholder="e.g. DTU or NSUT"
+                    placeholderTextColor={colors.textTertiary}
+                    value={customCollegeShortName}
+                    onChangeText={setCustomCollegeShortName}
+                    autoCapitalize="characters"
+                  />
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.saveCustomCollegeBtn, { backgroundColor: colors.textPrimary }]}
+                  onPress={() => {
+                    if (!customCollegeFullName.trim()) return;
+                    AppHaptics.success();
+                    const short = customCollegeShortName.trim() || customCollegeFullName.trim().slice(0, 4).toUpperCase();
+                    setSelectedCollege({
+                      id: `custom_${Date.now()}`,
+                      name: customCollegeFullName.trim(),
+                      shortName: short,
+                      campus: 'University Campus',
+                    });
+                    setIsCustomMode(false);
+                    setIsCollegeModalOpen(false);
+                  }}
+                >
+                  <Text style={[styles.saveCustomCollegeBtnText, { color: colors.textInverse }]}>Use This College</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            )}
 
             <TouchableOpacity
               style={[styles.modalCloseBtn, { backgroundColor: colors.surfaceElevated }]}
-              onPress={() => setIsCollegeModalOpen(false)}
+              onPress={() => {
+                setIsCollegeModalOpen(false);
+                setIsCustomMode(false);
+              }}
             >
               <Text style={[styles.modalCloseText, { color: colors.textPrimary }]}>Close</Text>
             </TouchableOpacity>
@@ -416,10 +573,10 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
   },
   logoContainer: {
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 24,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
     marginBottom: 10,
   },
   heroLogo: {
@@ -610,5 +767,32 @@ const styles = StyleSheet.create({
   modalCloseText: {
     fontSize: THEME.typography.sizes.sm,
     fontWeight: THEME.typography.weights.bold,
+  },
+  collegeModeToggleRow: {
+    flexDirection: 'row',
+    padding: 4,
+    borderRadius: THEME.borderRadius.lg,
+    marginBottom: THEME.spacing.md,
+  },
+  collegeModeTab: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: THEME.borderRadius.md,
+  },
+  collegeModeTabActive: {},
+  collegeModeTabText: {
+    fontSize: 11,
+    fontWeight: THEME.typography.weights.medium,
+  },
+  saveCustomCollegeBtn: {
+    paddingVertical: 14,
+    borderRadius: THEME.borderRadius.lg,
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  saveCustomCollegeBtnText: {
+    fontSize: THEME.typography.sizes.sm,
+    fontWeight: THEME.typography.weights.heavy,
   },
 });
