@@ -42,6 +42,9 @@ jobs:
       - name: 🏗️ Generate Native Android Project (Expo Prebuild)
         run: npx expo prebuild --platform android --clean
 
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: ⚙️ Optimize Gradle & Memory Config
         working-directory: android
         run: |
@@ -50,6 +53,9 @@ jobs:
           echo "kotlin.daemon.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=1024m" >> gradle.properties
           echo "android.enableLintVital=false" >> gradle.properties
           echo "org.gradle.parallel=false" >> gradle.properties
+          
+          # Inject multiple repository mirrors to prevent 429 Too Many Requests on maven central
+          sed -i 's/mavenCentral()/mavenCentral()\n        google()\n        maven { url "https:\/\/maven.google.com" }\n        maven { url "https:\/\/plugins.gradle.org\/m2\/" }/g' settings.gradle || true
 
       - name: 🔑 Configure Release Signing
         working-directory: android
