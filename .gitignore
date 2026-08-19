@@ -8,6 +8,8 @@ npm-debug.*
 *.key
 *.mobileprovision
 *.orig.*
+*.keystore
+credentials/
 web-build/
 .DS_Store
 android/

@@ -62,20 +62,14 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Decoding persistent release keystore from GitHub Secrets..."
             echo "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
-            KS_PASS="${KEYSTORE_PASSWORD:-attendly_release_pass}"
-            K_PASS="${KEY_PASSWORD:-$KS_PASS}"
-            K_ALIAS="${KEY_ALIAS:-attendly-release}"
-          elif [ -f "../credentials/release.keystore" ]; then
-            echo "Using repository persistent release keystore..."
-            cp ../credentials/release.keystore app/release.keystore
-            KS_PASS="${KEYSTORE_PASSWORD:-attendly_release_pass}"
+            KS_PASS="${KEYSTORE_PASSWORD}"
             K_PASS="${KEY_PASSWORD:-$KS_PASS}"
             K_ALIAS="${KEY_ALIAS:-attendly-release}"
           else
-            echo "Generating release keystore fallback..."
-            KS_PASS="attendly_release_pass"
-            K_PASS="attendly_release_pass"
-            K_ALIAS="attendly-release"
+            echo "No secret keystore provided. Generating ephemeral CI build keystore..."
+            KS_PASS="ci_build_keystore_pass"
+            K_PASS="ci_build_keystore_pass"
+            K_ALIAS="attendly-ci"
             keytool -genkey -v -keystore app/release.keystore -alias "$K_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KS_PASS" -keypass "$K_PASS" -dname "CN=Attendly, OU=Mobile, O=Attendly, L=Delhi, ST=Delhi, C=IN"
           fi
           

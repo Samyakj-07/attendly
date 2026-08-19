@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Attendly",
-    "slug": "ipu-attendance-os",
+    "slug": "attendly",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

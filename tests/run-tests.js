@@ -234,15 +234,51 @@ try {
   assertEqual(attendancePercentage(aggAttended, aggTotalIfSkipAll), 78.8, 'Skipping all 3 scheduled classes results in 78.8% aggregate (26/33)');
 
   // Test 10: Storage Sanitizer & Boundary Protection
-  console.log('\n--- Suite 10: Storage Schema Boundaries ---');
-  function clampTarget(val) {
-    const num = typeof val === 'number' ? val : parseInt(val, 10);
-    return Number.isFinite(num) ? Math.min(100, Math.max(1, Math.round(num))) : 75;
-  }
-  assertEqual(clampTarget(75), 75, 'Valid 75% target preserved');
-  assertEqual(clampTarget(120), 100, 'Target > 100 clamped to 100%');
-  assertEqual(clampTarget(-10), 1, 'Target < 1 clamped to 1%');
-  assertEqual(clampTarget('not-a-number'), 75, 'Invalid target string defaults to 75%');
+  console.log('\n--- Suite 10: Storage Schema Boundaries & Sanitization ---');
+  const sanitizers = require('./storageSanitizersTestHelper');
+  
+  // Profile Sanitizer tests
+  const validProfile = sanitizers.sanitizeProfile({
+    name: '  Rohan Sharma  ',
+    targetAttendance: 150, // Should clamp to 100
+    semester: 15, // Should clamp to 12
+    rollNumber: '04520802724',
+  });
+  assertEqual(validProfile.name, 'Rohan Sharma', 'Profile trims whitespace from student name');
+  assertEqual(validProfile.targetAttendance, 100, 'Target attendance clamped to maximum 100%');
+  assertEqual(validProfile.semester, 12, 'Semester clamped to valid range 1..12');
+
+  const invalidProfile = sanitizers.sanitizeProfile(null);
+  assertEqual(invalidProfile, null, 'Null profile input returns null safely');
+
+  // Subjects Sanitizer tests
+  const sanitizedSubjects = sanitizers.sanitizeSubjects([
+    { name: 'Operating Systems', code: 'bcs-301', attended: '12', total: '15', isLab2x: false },
+    { name: '', code: 'INVALID' }, // Should be dropped
+    { name: 'Data Structures Lab', type: 'Lab', attended: -2, total: 5 },
+  ]);
+  assertEqual(sanitizedSubjects.length, 2, 'Sanitizer filters out subjects without valid names');
+  assertEqual(sanitizedSubjects[0].code, 'BCS-301', 'Subject code automatically uppercased');
+  assertEqual(sanitizedSubjects[0].attended, 12, 'Numeric string attended count parsed to integer');
+  assertEqual(sanitizedSubjects[1].attended, 0, 'Negative attended count clamped to 0');
+  assertEqual(sanitizedSubjects[1].isLab2x, true, 'Lab type automatically infers 2x weighting');
+
+  // Orphan Pruning & Relationship Integrity
+  console.log('\n--- Suite 11: Database-Free Relational Integrity & Pruning ---');
+  const testSubs = [{ id: 'sub_1', name: 'Maths' }, { id: 'sub_2', name: 'Physics' }];
+  const testSlots = [
+    { id: 'slot_1', subjectId: 'sub_1', day: 'MON' },
+    { id: 'slot_2', subjectId: 'sub_deleted', day: 'TUE' },
+  ];
+  const testRecords = [
+    { id: 'rec_1', subjectId: 'sub_1', status: 'PRESENT' },
+    { id: 'rec_2', subjectId: 'sub_deleted', status: 'ABSENT' },
+  ];
+
+  const pruned = sanitizers.pruneOrphanedEntities(testSubs, testSlots, testRecords);
+  assertEqual(pruned.validTimetable.length, 1, 'Orphaned timetable slot with deleted subjectId removed');
+  assertEqual(pruned.validRecords.length, 1, 'Orphaned attendance record with deleted subjectId removed');
+  assertEqual(sanitizers.validateBackupRelationships(testSubs, pruned.validTimetable, pruned.validRecords), true, 'Pruned relationships pass validation');
 
   console.log('\n====================================================');
   console.log(`🎉 ALL TESTS PASSED SUCCESSFULLY! (${passedTests} passed, ${failedTests} failed)`);
