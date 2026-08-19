@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "app.attendly.mobile",
+      "versionCode": 2,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [],
       "adaptiveIcon": {

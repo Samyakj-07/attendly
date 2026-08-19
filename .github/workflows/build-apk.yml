@@ -56,23 +56,31 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'attendly-key' }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS || 'attendly-release' }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # Use provided secrets or generate random ephemeral signing credentials
-          KS_PASS="${KEYSTORE_PASSWORD:-$(openssl rand -hex 16)}"
-          K_PASS="${KEY_PASSWORD:-$KS_PASS}"
-          
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Decoding persistent release keystore from GitHub Secrets..."
             echo "$KEYSTORE_BASE64" | base64 --decode > app/release.keystore
-          elif [ ! -f "app/release.keystore" ]; then
-            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret found. Generating ephemeral CI build keystore. Note: App updates will require uninstalling previous builds unless persistent secrets are configured."
-            keytool -genkey -v -keystore app/release.keystore -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KS_PASS" -keypass "$K_PASS" -dname "CN=Attendly, OU=Engineering, O=Attendly, L=Delhi, S=Delhi, C=IN"
+            KS_PASS="${KEYSTORE_PASSWORD:-attendly_release_pass}"
+            K_PASS="${KEY_PASSWORD:-$KS_PASS}"
+            K_ALIAS="${KEY_ALIAS:-attendly-release}"
+          elif [ -f "../credentials/release.keystore" ]; then
+            echo "Using repository persistent release keystore..."
+            cp ../credentials/release.keystore app/release.keystore
+            KS_PASS="${KEYSTORE_PASSWORD:-attendly_release_pass}"
+            K_PASS="${KEY_PASSWORD:-$KS_PASS}"
+            K_ALIAS="${KEY_ALIAS:-attendly-release}"
+          else
+            echo "Generating release keystore fallback..."
+            KS_PASS="attendly_release_pass"
+            K_PASS="attendly_release_pass"
+            K_ALIAS="attendly-release"
+            keytool -genkey -v -keystore app/release.keystore -alias "$K_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KS_PASS" -keypass "$K_PASS" -dname "CN=Attendly, OU=Mobile, O=Attendly, L=Delhi, ST=Delhi, C=IN"
           fi
           
           # Inject release signing config into android/app/build.gradle
-          sed -i "s/signingConfigs {/signingConfigs {\n        release {\n            storeFile file(\"release.keystore\")\n            storePassword \"$KS_PASS\"\n            keyAlias \"$KEY_ALIAS\"\n            keyPassword \"$K_PASS\"\n        }/" app/build.gradle
+          sed -i "s/signingConfigs {/signingConfigs {\n        release {\n            storeFile file(\"release.keystore\")\n            storePassword \"$KS_PASS\"\n            keyAlias \"$K_ALIAS\"\n            keyPassword \"$K_PASS\"\n        }/" app/build.gradle
           sed -i 's/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/' app/build.gradle
 
       - name: ⚡ Build Standalone APK with Gradle
