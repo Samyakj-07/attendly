@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ActivityIndicator, Platform, StatusBar as RNStatusBar, BackHandler } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, BackHandler } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { THEME } from './src/constants/theme';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import { AttendanceProvider, useAttendance } from './src/context/AttendanceContext';
@@ -30,9 +30,6 @@ const MainAppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>('HOME');
   const [navDirection, setNavDirection] = useState<number>(1);
   const [tabHistory, setTabHistory] = useState<NavTab[]>(['HOME']);
-
-  // On Android, apply status bar offset if translucent; on iOS, screen SafeAreaViews handle top inset cleanly
-  const topInset = Platform.OS === 'android' ? (RNStatusBar.currentHeight || 0) : 0;
 
   const handleSelectTab = (newTab: NavTab) => {
     if (newTab === activeTab) return;
@@ -110,7 +107,7 @@ const MainAppContent: React.FC = () => {
 
   if (isLoading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: colors.background, paddingTop: topInset }]}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
@@ -118,7 +115,7 @@ const MainAppContent: React.FC = () => {
 
   if (!profile.isOnboarded) {
     return (
-      <View style={[styles.mainContainer, { backgroundColor: colors.background, paddingTop: topInset }]}>
+      <View style={[styles.mainContainer, { backgroundColor: colors.background }]}>
         <StatusBar style="dark" />
         <OnboardingScreen />
       </View>
@@ -126,8 +123,8 @@ const MainAppContent: React.FC = () => {
   }
 
   return (
-    <View style={[styles.mainContainer, { backgroundColor: colors.background, paddingTop: topInset }]}>
-      <StatusBar style="dark" translucent={true} />
+    <View style={[styles.mainContainer, { backgroundColor: colors.background }]}>
+      <StatusBar style="dark" />
       <View style={styles.screenContainer}>
         <AnimatedTabScene isActive={activeTab === 'HOME'} direction={navDirection} isInitialMount={true}>
           <HomeScreen onNavigateTab={handleSelectTab} />
